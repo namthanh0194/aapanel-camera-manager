@@ -31,6 +31,7 @@ exec ffmpeg \
   -loglevel warning \
   -rtsp_transport tcp \
   -stimeout 10000000 \
+  -use_wallclock_as_timestamps 1 \
   -fflags +genpts \
   -i "$RTSP_URL" \
   -map 0:v:0 \
