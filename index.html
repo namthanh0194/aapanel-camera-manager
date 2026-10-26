@@ -73,17 +73,44 @@
     margin-right: 6px;
     font-size: 12px;
 }
+
+/* Storage UI */
+.storage-card {
+    background: rgba(0, 0, 0, 0.03);
+    border: 1px solid rgba(0, 0, 0, 0.08);
+    border-radius: 6px;
+    padding: 12px 16px;
+    margin-bottom: 14px;
+}
+.dark .storage-card {
+    background: rgba(255, 255, 255, 0.04);
+    border-color: rgba(255, 255, 255, 0.1);
+}
+.storage-bar-bg {
+    background: #e2e8f0;
+    height: 10px;
+    border-radius: 5px;
+    overflow: hidden;
+    margin: 8px 0;
+}
+.dark .storage-bar-bg { background: #334155; }
+.storage-bar-fill {
+    background: #10b981;
+    height: 100%;
+    transition: width 0.3s;
+}
 </style>
 
 <div class="cam-container">
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
-        <div>
+        <div style="display: flex; gap: 6px; flex-wrap: wrap;">
             <button class="btn btn-success btn-sm" onclick="cameraManager.openModal(false)">➕ Thêm Camera</button>
+            <button class="btn btn-default btn-sm" style="color: #20a53a; font-weight: bold;" onclick="cameraManager.openStorageModal()">🧹 Quét & Dọn Lưu Trữ</button>
             <button class="btn btn-default btn-sm" onclick="cameraManager.triggerArchive()">🚀 Bắn Telegram Ngay</button>
             <button class="btn btn-default btn-sm" onclick="cameraManager.reloadList()">🔄 Làm Mới</button>
         </div>
         <div>
-            <span id="camPluginVersion" style="font-size: 12px; color: #888; margin-right: 8px;">v1.0.2</span>
+            <span id="camPluginVersion" style="font-size: 12px; color: #888; margin-right: 8px;">v1.0.3</span>
             <button class="btn btn-default btn-sm" onclick="cameraManager.checkUpdate()">☁️ Kiểm tra Update</button>
         </div>
     </div>
@@ -228,6 +255,116 @@ var cameraManager = {
         });
     },
 
+    /* Modal Quản lý Lưu Trữ & Dọn Rác */
+    openStorageModal: function() {
+        var loadT = layer.msg('Đang quét bộ nhớ lưu trữ...', { icon: 16, time: 0, shade: 0.1 });
+        $.post('/plugin?action=a&name=camera_manager&s=get_storage_status', {}, function(res) {
+            layer.close(loadT);
+            var data = (typeof res === 'string') ? JSON.parse(res) : res;
+            cameraManager.renderStorageModal(data);
+        }).fail(function() {
+            layer.close(loadT);
+            layer.msg('Không thể kiểm tra dung lượng lưu trữ', { icon: 2 });
+        });
+    },
+
+    renderStorageModal: function(data) {
+        var disk = data.disk || { used_gb: 0, total_gb: 0, free_gb: 0, used_percent: 0 };
+        var barColor = disk.used_percent > 85 ? '#ff4d4f' : (disk.used_percent > 65 ? '#faad14' : '#10b981');
+
+        var camRows = '';
+        if (data.cameras && data.cameras.length > 0) {
+            data.cameras.forEach(function(c) {
+                var trashBadge = c.trash_count > 0 
+                    ? '<span style="color: #ff4d4f; font-weight: bold;">' + c.trash_count + ' file</span>' 
+                    : '<span style="color: #52c41a;">Sạch sẽ</span>';
+
+                camRows += '<tr>' +
+                    '<td><b>' + c.id + '</b></td>' +
+                    '<td>' + c.mp4_count + ' video</td>' +
+                    '<td>' + trashBadge + '</td>' +
+                    '<td><b>' + c.size_mb + ' MB</b></td>' +
+                    '<td>' +
+                        '<a class="btlink" style="color: #faad14; margin-right: 8px;" onclick="cameraManager.cleanAction(\'' + c.id + '\', \'trash_only\')">🧹 Xóa rác</a>' +
+                        '<a class="btlink" style="color: #ff4d4f;" onclick="cameraManager.cleanAction(\'' + c.id + '\', \'all_buffer\')">🗑 Dọn buffer</a>' +
+                    '</td>' +
+                '</tr>';
+            });
+        } else {
+            camRows = '<tr><td colspan="5" style="text-align: center; color: #999;">Không tìm thấy thư mục camera nào.</td></tr>';
+        }
+
+        var html = '<div style="padding: 16px 20px; max-height: 520px; overflow-y: auto;">' +
+            '<div class="storage-card">' +
+                '<div style="display: flex; justify-content: space-between; font-size: 13px;">' +
+                    '<span><b>Ổ đĩa /tmp:</b> Đã dùng ' + disk.used_gb + ' GB / ' + disk.total_gb + ' GB (Còn trống: <b>' + disk.free_gb + ' GB</b>)</span>' +
+                    '<span><b>' + disk.used_percent + '%</b></span>' +
+                '</div>' +
+                '<div class="storage-bar-bg"><div class="storage-bar-fill" style="width: ' + disk.used_percent + '%; background: ' + barColor + ';"></div></div>' +
+                '<div style="font-size: 12px; color: #666; margin-top: 4px;">' +
+                    'Tổng dung lượng stream camera đang dùng: <b style="color: #3b82f6;">' + data.total_size_mb + ' MB</b> (Tổng ' + data.total_files + ' file, ' + (data.total_trash_files > 0 ? '<span style="color: #ff4d4f; font-weight: bold;">' + data.total_trash_files + ' file rác/0 byte' : '<span style="color: #10b981;">0 file rác</span>') + '</span>)' +
+                '</div>' +
+            '</div>' +
+
+            '<div style="display: flex; justify-content: space-between; align-items: center; margin: 12px 0 8px 0;">' +
+                '<b style="font-size: 13px;">Chi tiết theo từng Camera:</b>' +
+                '<div style="display: flex; gap: 6px;">' +
+                    '<button class="btn btn-warning btn-xs" onclick="cameraManager.cleanAction(\'all\', \'trash_only\')">🧹 Quét dọn file rác tất cả</button>' +
+                    '<button class="btn btn-danger btn-xs" onclick="cameraManager.cleanAction(\'all\', \'all_buffer\')">🗑 Dọn sạch video cũ tất cả</button>' +
+                '</div>' +
+            '</div>' +
+
+            '<table class="table table-hover" style="font-size: 12px; width: 100%;">' +
+                '<thead>' +
+                    '<tr>' +
+                        '<th>Mã Camera</th>' +
+                        '<th>Số Video MP4</th>' +
+                        '<th>File rác / lỗi</th>' +
+                        '<th>Dung Lượng</th>' +
+                        '<th width="140">Hành Động</th>' +
+                    '</tr>' +
+                '</thead>' +
+                '<tbody>' + camRows + '</tbody>' +
+            '</table>' +
+            '<div style="text-align: right; margin-top: 14px;">' +
+                '<button class="btn btn-default btn-sm" onclick="layer.close(cameraManager.storageLayerIdx)">Đóng</button>' +
+            '</div>' +
+        '</div>';
+
+        cameraManager.storageLayerIdx = layer.open({
+            type: 1,
+            title: 'Quản Lý Lưu Trữ & Dọn Rác Camera',
+            area: ['640px', 'auto'],
+            closeBtn: 2,
+            shadeClose: false,
+            content: html
+        });
+    },
+
+    cleanAction: function(camId, mode) {
+        var msg = '';
+        if (mode === 'trash_only') {
+            msg = (camId === 'all') 
+                ? 'Bạn có chắc muốn quét xóa tất cả file rác (.ts cũ, file 0 byte) của TOÀN BỘ camera?' 
+                : 'Bạn có chắc muốn xóa file rác (.ts cũ, file 0 byte) của camera [' + camId + ']?';
+        } else {
+            msg = (camId === 'all') 
+                ? 'CẢNH BÁO: Hành động này sẽ xóa toàn bộ các video cũ đã quay xong của TẤT CẢ camera (chỉ giữ file đang quay). Tiếp tục?' 
+                : 'Xóa toàn bộ các video cũ đã quay xong của camera [' + camId + ']?';
+        }
+
+        layer.confirm(msg, { title: 'Xác nhận dọn dẹp', icon: 3 }, function() {
+            var loadT = layer.msg('Đang dọn dẹp...', { icon: 16, time: 0, shade: 0.1 });
+            $.post('/plugin?action=a&name=camera_manager&s=clean_storage', { id: camId, mode: mode }, function(res) {
+                layer.close(loadT);
+                var data = (typeof res === 'string') ? JSON.parse(res) : res;
+                layer.msg(data.msg || 'Hoàn tất', { icon: 1, time: 2000 });
+                layer.close(cameraManager.storageLayerIdx);
+                cameraManager.reloadList();
+            });
+        });
+    },
+
     deleteCam: function(camId) {
         layer.confirm('Bạn có chắc chắn muốn xóa camera [' + camId + ']?', { title: 'Xác nhận xóa', icon: 3 }, function() {
             var loadT = layer.msg('Đang xóa...', { icon: 16, time: 0, shade: 0.1 });
@@ -347,7 +484,7 @@ var cameraManager = {
         $.post('/plugin?action=a&name=camera_manager&s=check_update', {}, function(res) {
             layer.close(loadT);
             var data = (typeof res === 'string') ? JSON.parse(res) : res;
-            layer.alert(data.msg || 'Bạn đang sử dụng phiên bản mới nhất (v1.0.2)', { title: 'Thông tin phiên bản', icon: 1 });
+            layer.alert(data.msg || 'Bạn đang sử dụng phiên bản mới nhất (v1.0.3)', { title: 'Thông tin phiên bản', icon: 1 });
         });
     }
 };

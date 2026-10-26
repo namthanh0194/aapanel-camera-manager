@@ -7,6 +7,7 @@ import json
 import time
 import subprocess
 import re
+import shutil
 
 panelPath = "/www/server/panel"
 os.chdir(panelPath)
@@ -113,10 +114,9 @@ class camera_manager_main:
 
         public.ExecShell(f"chown root:www '{env_path}' && chmod 640 '{env_path}'")
 
-        # Tạo thư mục con
-        for sub in ["buffer", "output", "work"]:
-            d = os.path.join(CAMERA_ROOT, cam_id, sub)
-            os.makedirs(d, exist_ok=True)
+        # Tạo thư mục con buffer
+        buf_d = os.path.join(CAMERA_ROOT, cam_id, "buffer")
+        os.makedirs(buf_d, exist_ok=True)
         public.ExecShell(f"chown -R www:www '{CAMERA_ROOT}/{cam_id}' && chmod -R 775 '{CAMERA_ROOT}/{cam_id}'")
 
         # Reload service nếu service đang chạy
@@ -197,13 +197,162 @@ class camera_manager_main:
         except Exception as e:
             return public.returnMsg(False, f"Lỗi: {e}")
 
-    # 7. API: Kiểm tra phiên bản
+    # 7. API: Quét kiểm tra trạng thái lưu trữ & rác
+    def get_storage_status(self, get):
+        result = {
+            "disk": {},
+            "cameras": [],
+            "total_size_mb": 0.0,
+            "total_files": 0,
+            "total_trash_files": 0
+        }
+        
+        # Thống kê phân vùng /tmp
+        try:
+            disk_stat = shutil.disk_usage(CAMERA_ROOT if os.path.exists(CAMERA_ROOT) else "/tmp")
+            result["disk"] = {
+                "total_gb": round(disk_stat.total / (1024**3), 2),
+                "used_gb": round(disk_stat.used / (1024**3), 2),
+                "free_gb": round(disk_stat.free / (1024**3), 2),
+                "used_percent": round((disk_stat.used / disk_stat.total) * 100, 1)
+            }
+        except Exception:
+            result["disk"] = {"total_gb": 0, "used_gb": 0, "free_gb": 0, "used_percent": 0}
+
+        if not os.path.exists(CAMERA_ROOT):
+            return json.dumps(result, ensure_ascii=False)
+
+        all_cam_dirs = sorted([d for d in os.listdir(CAMERA_ROOT) if os.path.isdir(os.path.join(CAMERA_ROOT, d))])
+        for cam_id in all_cam_dirs:
+            cam_path = os.path.join(CAMERA_ROOT, cam_id)
+            buf_path = os.path.join(cam_path, "buffer")
+            cam_size = 0
+            file_count = 0
+            trash_count = 0
+            mp4_count = 0
+
+            # Quét toàn bộ thư mục của camera
+            for root, dirs, files in os.walk(cam_path):
+                for f in files:
+                    fp = os.path.join(root, f)
+                    try:
+                        sz = os.path.getsize(fp)
+                        cam_size += sz
+                        file_count += 1
+                        # File rác: file đuôi .ts cũ, file 0 byte, file tạm trong work/output cũ
+                        if f.endswith(".ts") or sz == 0 or "work" in root or "output" in root:
+                            trash_count += 1
+                        elif f.endswith(".mp4"):
+                            mp4_count += 1
+                    except OSError:
+                        pass
+
+            cam_size_mb = round(cam_size / (1024 * 1024), 2)
+            result["total_size_mb"] += cam_size_mb
+            result["total_files"] += file_count
+            result["total_trash_files"] += trash_count
+
+            result["cameras"].append({
+                "id": cam_id,
+                "size_mb": cam_size_mb,
+                "file_count": file_count,
+                "mp4_count": mp4_count,
+                "trash_count": trash_count
+            })
+
+        result["total_size_mb"] = round(result["total_size_mb"], 2)
+        return json.dumps(result, ensure_ascii=False)
+
+    # 8. API: Dọn dẹp rác / xóa bộ đệm lưu trữ
+    def clean_storage(self, get):
+        cam_id = getattr(get, "id", "all").strip()
+        mode = getattr(get, "mode", "trash_only").strip() # trash_only hoặc all_buffer
+        
+        deleted_count = 0
+        freed_bytes = 0
+
+        target_cams = []
+        if cam_id == "all" or not cam_id:
+            if os.path.exists(CAMERA_ROOT):
+                target_cams = [d for d in os.listdir(CAMERA_ROOT) if os.path.isdir(os.path.join(CAMERA_ROOT, d))]
+        else:
+            p = os.path.join(CAMERA_ROOT, cam_id)
+            if os.path.isdir(p):
+                target_cams = [cam_id]
+
+        for cid in target_cams:
+            cam_dir = os.path.join(CAMERA_ROOT, cid)
+            buf_dir = os.path.join(cam_dir, "buffer")
+
+            # 1. Xóa các thư mục thừa nếu có (work, output)
+            for sub in ["work", "output"]:
+                sub_p = os.path.join(cam_dir, sub)
+                if os.path.exists(sub_p):
+                    try:
+                        for root, dirs, files in os.walk(sub_p, topdown=False):
+                            for f in files:
+                                fp = os.path.join(root, f)
+                                freed_bytes += os.path.getsize(fp)
+                                os.remove(fp)
+                                deleted_count += 1
+                            for d in dirs: os.rmdir(os.path.join(root, d))
+                        os.rmdir(sub_p)
+                    except Exception:
+                        pass
+
+            if not os.path.isdir(buf_dir):
+                continue
+
+            # 2. Xóa các file .ts rác hoặc file 0 bytes
+            for f in os.listdir(buf_dir):
+                fp = os.path.join(buf_dir, f)
+                if not os.path.isfile(fp): continue
+                try:
+                    sz = os.path.getsize(fp)
+                    if f.endswith(".ts") or sz == 0:
+                        freed_bytes += sz
+                        os.remove(fp)
+                        deleted_count += 1
+                except OSError:
+                    pass
+
+            # 3. Nếu chọn dọn sạch toàn bộ buffer (all_buffer):
+            # Xóa các file mp4 đã quay xong (giữ lại file mp4 mới nhất đang được ffmpeg mở ghi)
+            if mode == "all_buffer":
+                mp4_files = sorted(glob.glob(os.path.join(buf_dir, "*.mp4")))
+                if len(mp4_files) > 1:
+                    # Bỏ qua file cuối cùng đang ghi
+                    for old_mp4 in mp4_files[:-1]:
+                        try:
+                            freed_bytes += os.path.getsize(old_mp4)
+                            os.remove(old_mp4)
+                            deleted_count += 1
+                        except OSError:
+                            pass
+                elif len(mp4_files) == 1:
+                    # Nếu service của camera này đã dừng (inactive) thì có thể xóa nốt file duy nhất
+                    svc_status = self._get_service_status(cid)
+                    if svc_status.get("status") != "active":
+                        try:
+                            freed_bytes += os.path.getsize(mp4_files[0])
+                            os.remove(mp4_files[0])
+                            deleted_count += 1
+                        except OSError:
+                            pass
+
+        freed_mb = round(freed_bytes / (1024 * 1024), 2)
+        return json.dumps({
+            "status": True,
+            "msg": f"Đã dọn dẹp {deleted_count} file, giải phóng {freed_mb} MB dung lượng!"
+        }, ensure_ascii=False)
+
+    # 9. API: Kiểm tra phiên bản
     def check_update(self, get):
         plugin_info_path = "/www/server/panel/plugin/camera_manager/info.json"
-        current_version = "1.0.2"
+        current_version = "1.0.3"
         if os.path.exists(plugin_info_path):
             try:
-                current_version = json.loads(public.ReadFile(plugin_info_path)).get("versions", "1.0.2")
+                current_version = json.loads(public.ReadFile(plugin_info_path)).get("versions", "1.0.3")
             except Exception:
                 pass
 
