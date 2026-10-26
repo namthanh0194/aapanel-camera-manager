@@ -99,6 +99,17 @@
     height: 100%;
     transition: width 0.3s;
 }
+.cam-path-note {
+    margin: 0 0 12px;
+    padding: 9px 12px;
+    border: 1px solid rgba(0, 0, 0, 0.1);
+    border-radius: 5px;
+    font-size: 12px;
+}
+.dark .cam-path-note { border-color: rgba(255, 255, 255, 0.12); }
+.cam-path-note summary { cursor: pointer; font-weight: bold; }
+.cam-path-note ul { margin: 8px 0 0 18px; line-height: 1.7; }
+.cam-path-note code { font-size: 11px; }
 </style>
 
 <div class="cam-container">
@@ -110,10 +121,21 @@
             <button class="btn btn-default btn-sm" onclick="cameraManager.reloadList()">🔄 Làm Mới</button>
         </div>
         <div>
-            <span id="camPluginVersion" style="font-size: 12px; color: #888; margin-right: 8px;">v1.0.3</span>
+            <span id="camPluginVersion" style="font-size: 12px; color: #888; margin-right: 8px;">v1.0.4</span>
             <button class="btn btn-default btn-sm" onclick="cameraManager.checkUpdate()">☁️ Kiểm tra Update</button>
         </div>
     </div>
+
+    <details class="cam-path-note">
+        <summary>📁 Thư mục plugin tạo và sử dụng</summary>
+        <ul>
+            <li><code>/www/server/panel/plugin/camera_manager/</code> — mã nguồn và giao diện plugin aaPanel.</li>
+            <li><code>/opt/camera/</code> — cấu hình từng camera (<code>*.env</code>) và script ghi/gửi video.</li>
+            <li><code>/tmp/video/cameras/&lt;camera_id&gt;/buffer/</code> — các đoạn MP4 đang ghi hoặc chờ gửi Telegram; gửi thành công thì tự xóa.</li>
+            <li><code>/etc/systemd/system/camera-buffer@.service</code> — mẫu dịch vụ ghi stream; <code>camera-cleanup.service</code> và <code>camera-cleanup.timer</code> — gửi/dọn buffer định kỳ.</li>
+            <li>Gỡ plugin khỏi aaPanel chỉ xóa mã plugin; cấu hình camera, video và dịch vụ hệ thống ở các đường dẫn trên được giữ lại.</li>
+        </ul>
+    </details>
 
     <div class="divtable">
         <table class="table table-hover cam-table" id="camListTable">
@@ -484,7 +506,7 @@ var cameraManager = {
         $.post('/plugin?action=a&name=camera_manager&s=check_update', {}, function(res) {
             layer.close(loadT);
             var data = (typeof res === 'string') ? JSON.parse(res) : res;
-            layer.alert(data.msg || 'Bạn đang sử dụng phiên bản mới nhất (v1.0.3)', { title: 'Thông tin phiên bản', icon: 1 });
+            layer.alert(data.msg || 'Bạn đang sử dụng phiên bản mới nhất (v1.0.4)', { title: 'Thông tin phiên bản', icon: 1 });
         });
     }
 };
