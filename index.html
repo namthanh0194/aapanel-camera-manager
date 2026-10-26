@@ -1,0 +1,246 @@
+<style>
+.cam-container { padding: 15px; color: #333; }
+.dark .cam-container { color: #ccc; }
+.cam-table { width: 100%; margin-top: 10px; }
+.cam-badge-active { background: #52c41a; color: #fff; padding: 2px 8px; border-radius: 4px; font-size: 11px; }
+.cam-badge-inactive { background: #ff4d4f; color: #fff; padding: 2px 8px; border-radius: 4px; font-size: 11px; }
+.cam-rtsp-box { font-family: monospace; font-size: 11px; background: rgba(0,0,0,0.05); padding: 2px 4px; border-radius: 3px; word-break: break-all; }
+.cam-modal-row { margin-bottom: 12px; }
+.cam-modal-row label { display: block; font-weight: bold; margin-bottom: 4px; font-size: 12px; }
+</style>
+
+<div class="cam-container">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+        <div>
+            <button class="btn btn-success btn-sm" onclick="cameraManager.openModal(false)">➕ Thêm Camera</button>
+            <button class="btn btn-default btn-sm" onclick="cameraManager.reloadList()">🔄 Làm Mới</button>
+        </div>
+        <div>
+            <span id="camPluginVersion" style="font-size: 12px; color: #888; margin-right: 8px;">v1.0.0</span>
+            <button class="btn btn-default btn-sm" onclick="cameraManager.checkUpdate()">☁️ Kiểm tra Update</button>
+        </div>
+    </div>
+
+    <div class="divtable">
+        <table class="table table-hover" id="camListTable">
+            <thead>
+                <tr>
+                    <th width="120">Mã Camera</th>
+                    <th>RTSP URL</th>
+                    <th width="100">Trạng Thái</th>
+                    <th width="90">Buffer TS</th>
+                    <th width="140">Telegram Group</th>
+                    <th width="190">Hành Động</th>
+                </tr>
+            </thead>
+            <tbody id="camTableBody">
+                <tr><td colspan="6" style="text-align: center;">Đang tải dữ liệu camera...</td></tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<script type="text/javascript">
+var cameraManager = {
+    cams: [],
+    
+    init: function() {
+        this.reloadList();
+    },
+
+    reloadList: function() {
+        var loadT = layer.msg('Đang tải dữ liệu...', { icon: 16, time: 0, shade: 0.1 });
+        $.post('/plugin?action=a&name=camera_manager&s=get_camera_list', {}, function(res) {
+            layer.close(loadT);
+            var data = (typeof res === 'string') ? JSON.parse(res) : res;
+            cameraManager.cams = data;
+            cameraManager.renderTable(data);
+        }).fail(function() {
+            layer.close(loadT);
+            layer.msg('Không thể tải danh sách camera', { icon: 2 });
+        });
+    },
+
+    renderTable: function(list) {
+        var tbody = $('#camTableBody');
+        tbody.empty();
+        if (!list || list.length === 0) {
+            tbody.append('<tr><td colspan="6" style="text-align: center; color: #999;">Chưa có camera nào được cấu hình.</td></tr>');
+            return;
+        }
+
+        $.each(list, function(idx, item) {
+            var isActive = (item.status === 'active');
+            var statusBadge = isActive ? '<span class="cam-badge-active">Đang chạy</span>' : '<span class="cam-badge-inactive">Đã dừng</span>';
+            var teleText = item.telegram_bot_token ? '✅ ' + (item.telegram_chat_id || 'Có bot') : '<span style="color: #999;">Chưa có</span>';
+            
+            var actBtn = isActive 
+                ? '<a class="btlink" style="color: #ff4d4f; margin-right: 8px;" onclick="cameraManager.control(\'' + item.id + '\', \'stop\')">⏹ Dừng</a>'
+                : '<a class="btlink" style="color: #52c41a; margin-right: 8px;" onclick="cameraManager.control(\'' + item.id + '\', \'start\')">▶ Chạy</a>';
+            actBtn += '<a class="btlink" style="margin-right: 8px;" onclick="cameraManager.control(\'' + item.id + '\', \'restart\')">🔄 Khởi động lại</a>';
+            actBtn += '<a class="btlink" style="margin-right: 8px;" onclick="cameraManager.openModal(true, \'' + item.id + '\')">✏ Sửa</a>';
+            actBtn += '<a class="btlink" style="color: #ff4d4f;" onclick="cameraManager.deleteCam(\'' + item.id + '\')">🗑 Xóa</a>';
+
+            var tr = '<tr>' +
+                '<td><b>' + item.id + '</b></td>' +
+                '<td><span class="cam-rtsp-box">' + (item.rtsp_url || '') + '</span></td>' +
+                '<td>' + statusBadge + '</td>' +
+                '<td>' + (item.buffer_count || 0) + ' file</td>' +
+                '<td>' + teleText + '</td>' +
+                '<td>' + actBtn + '</td>' +
+            '</tr>';
+            tbody.append(tr);
+        });
+    },
+
+    control: function(camId, act) {
+        var loadT = layer.msg('Đang thực hiện...', { icon: 16, time: 0, shade: 0.1 });
+        $.post('/plugin?action=a&name=camera_manager&s=control_service', { id: camId, act: act }, function(res) {
+            layer.close(loadT);
+            var data = (typeof res === 'string') ? JSON.parse(res) : res;
+            if (data.status) {
+                layer.msg(data.msg, { icon: 1 });
+                cameraManager.reloadList();
+            } else {
+                layer.msg(data.msg || 'Thất bại', { icon: 2 });
+            }
+        });
+    },
+
+    deleteCam: function(camId) {
+        layer.confirm('Bạn có chắc chắn muốn xóa camera ' + camId + '?', { title: 'Xác nhận xóa', icon: 3 }, function() {
+            var loadT = layer.msg('Đang xóa...', { icon: 16, time: 0, shade: 0.1 });
+            $.post('/plugin?action=a&name=camera_manager&s=delete_camera', { id: camId }, function(res) {
+                layer.close(loadT);
+                var data = (typeof res === 'string') ? JSON.parse(res) : res;
+                if (data.status) {
+                    layer.msg(data.msg, { icon: 1 });
+                    cameraManager.reloadList();
+                } else {
+                    layer.msg(data.msg || 'Không thể xóa', { icon: 2 });
+                }
+            });
+        });
+    },
+
+    openModal: function(isEdit, camId) {
+        var c = isEdit ? cameraManager.cams.find(function(x) { return x.id === camId; }) : null;
+        var html = '<div style="padding: 18px;">' +
+            '<div class="cam-modal-row">' +
+                '<label>Mã Camera (ID - không dấu, không cách):</label>' +
+                '<input class="bt-input-text" id="m_cam_id" style="width: 100%;" value="' + (c ? c.id : '') + '" ' + (isEdit ? 'disabled' : '') + ' placeholder="vd: cong_truoc, san, xuong" />' +
+            '</div>' +
+            '<div class="cam-modal-row">' +
+                '<label>RTSP Stream URL:</label>' +
+                '<div style="display: flex; gap: 8px;">' +
+                    '<input class="bt-input-text" id="m_rtsp_url" style="flex: 1;" value="' + (c ? c.rtsp_url : '') + '" placeholder="rtsp://admin:pass@192.168.1.x:554/..." />' +
+                    '<button class="btn btn-default btn-sm" onclick="cameraManager.testStream()">Test Stream</button>' +
+                '</div>' +
+                '<div id="m_test_res" style="font-size: 11px; margin-top: 4px;"></div>' +
+            '</div>' +
+            '<div style="display: flex; gap: 12px;" class="cam-modal-row">' +
+                '<div style="flex: 1;">' +
+                    '<label>Audio Mode:</label>' +
+                    '<select class="bt-input-text" id="m_audio_mode" style="width: 100%;">' +
+                        '<option value="aac" ' + (c && c.audio_mode === 'aac' ? 'selected' : '') + '>AAC Encode</option>' +
+                        '<option value="copy" ' + (c && c.audio_mode === 'copy' ? 'selected' : '') + '>Copy Stream</option>' +
+                    '</select>' +
+                '</div>' +
+                '<div style="flex: 1;">' +
+                    '<label>Audio Bitrate:</label>' +
+                    '<input class="bt-input-text" id="m_audio_bitrate" style="width: 100%;" value="' + (c ? c.audio_bitrate : '64k') + '" />' +
+                '</div>' +
+            '</div>' +
+            '<div style="display: flex; gap: 12px;" class="cam-modal-row">' +
+                '<div style="flex: 1;">' +
+                    '<label>Giây trước Motion (PRE):</label>' +
+                    '<input type="number" class="bt-input-text" id="m_pre_sec" style="width: 100%;" value="' + (c ? c.pre_seconds : '15') + '" />' +
+                '</div>' +
+                '<div style="flex: 1;">' +
+                    '<label>Giây sau Motion (POST):</label>' +
+                    '<input type="number" class="bt-input-text" id="m_post_sec" style="width: 100%;" value="' + (c ? c.post_seconds : '45') + '" />' +
+                '</div>' +
+            '</div>' +
+            '<hr style="margin: 10px 0; border: 0; border-top: 1px dashed #ccc;" />' +
+            '<div class="cam-modal-row">' +
+                '<label>Telegram Bot Token (để gửi video lưu trữ):</label>' +
+                '<input class="bt-input-text" id="m_tele_token" style="width: 100%;" value="' + (c ? c.telegram_bot_token : '') + '" placeholder="8047369133:AAE8q2QJw-..." />' +
+            '</div>' +
+            '<div class="cam-modal-row">' +
+                '<label>Telegram Group / Chat ID:</label>' +
+                '<input class="bt-input-text" id="m_tele_chat" style="width: 100%;" value="' + (c ? c.telegram_chat_id : '') + '" placeholder="-5073385944" />' +
+            '</div>' +
+            '<div style="text-align: right; margin-top: 16px;">' +
+                '<button class="btn btn-default btn-sm" onclick="layer.closeAll()" style="margin-right: 8px;">Đóng</button>' +
+                '<button class="btn btn-success btn-sm" onclick="cameraManager.saveForm()">Lưu Lại</button>' +
+            '</div>' +
+        '</div>';
+
+        layer.open({
+            type: 1,
+            title: isEdit ? 'Chỉnh sửa Camera [' + camId + ']' : 'Thêm Camera Mới',
+            area: ['520px', 'auto'],
+            closeBtn: 2,
+            shadeClose: false,
+            content: html
+        });
+    },
+
+    testStream: function() {
+        var url = $('#m_rtsp_url').val().trim();
+        if (!url) return layer.msg('Vui lòng nhập RTSP URL trước', { icon: 0 });
+        $('#m_test_res').html('<span style="color: #faad14;">⏳ Đang kiểm tra luồng RTSP...</span>');
+        $.post('/plugin?action=a&name=camera_manager&s=test_rtsp', { rtsp_url: url }, function(res) {
+            var data = (typeof res === 'string') ? JSON.parse(res) : res;
+            if (data.ok) {
+                var v = (data.info && data.info.streams) ? data.info.streams.find(function(s){return s.codec_type === 'video';}) : null;
+                var info = v ? (' (' + v.codec_name + ' ' + v.width + 'x' + v.height + ')') : '';
+                $('#m_test_res').html('<span style="color: #52c41a;">✅ Kết nối thành công!' + info + '</span>');
+            } else {
+                $('#m_test_res').html('<span style="color: #ff4d4f;">❌ Lỗi: ' + (data.error || 'Thất bại') + '</span>');
+            }
+        });
+    },
+
+    saveForm: function() {
+        var id = $('#m_cam_id').val().trim();
+        var rtsp = $('#m_rtsp_url').val().trim();
+        if (!id || !rtsp) return layer.msg('Vui lòng điền đủ Mã Camera và RTSP URL', { icon: 0 });
+
+        var payload = {
+            id: id,
+            rtsp_url: rtsp,
+            audio_mode: $('#m_audio_mode').val(),
+            audio_bitrate: $('#m_audio_bitrate').val().trim(),
+            pre_seconds: $('#m_pre_sec').val(),
+            post_seconds: $('#m_post_sec').val(),
+            telegram_bot_token: $('#m_tele_token').val().trim(),
+            telegram_chat_id: $('#m_tele_chat').val().trim()
+        };
+
+        var loadT = layer.msg('Đang lưu cấu hình...', { icon: 16, time: 0, shade: 0.1 });
+        $.post('/plugin?action=a&name=camera_manager&s=save_camera', payload, function(res) {
+            layer.close(loadT);
+            var data = (typeof res === 'string') ? JSON.parse(res) : res;
+            if (data.status) {
+                layer.closeAll();
+                layer.msg(data.msg, { icon: 1 });
+                cameraManager.reloadList();
+            } else {
+                layer.msg(data.msg || 'Không thể lưu', { icon: 2 });
+            }
+        });
+    },
+
+    checkUpdate: function() {
+        var loadT = layer.msg('Đang kiểm tra cập nhật...', { icon: 16, time: 0, shade: 0.1 });
+        $.post('/plugin?action=a&name=camera_manager&s=check_update', {}, function(res) {
+            layer.close(loadT);
+            var data = (typeof res === 'string') ? JSON.parse(res) : res;
+            layer.alert(data.msg || 'Bạn đang sử dụng phiên bản mới nhất (v1.0.0)', { title: 'Thông tin phiên bản', icon: 1 });
+        });
+    }
+};
+
+cameraManager.init();
+</script>
