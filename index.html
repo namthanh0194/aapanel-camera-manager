@@ -79,10 +79,11 @@
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
         <div>
             <button class="btn btn-success btn-sm" onclick="cameraManager.openModal(false)">➕ Thêm Camera</button>
+            <button class="btn btn-default btn-sm" onclick="cameraManager.triggerArchive()">🚀 Bắn Telegram Ngay</button>
             <button class="btn btn-default btn-sm" onclick="cameraManager.reloadList()">🔄 Làm Mới</button>
         </div>
         <div>
-            <span id="camPluginVersion" style="font-size: 12px; color: #888; margin-right: 8px;">v1.0.1</span>
+            <span id="camPluginVersion" style="font-size: 12px; color: #888; margin-right: 8px;">v1.0.2</span>
             <button class="btn btn-default btn-sm" onclick="cameraManager.checkUpdate()">☁️ Kiểm tra Update</button>
         </div>
     </div>
@@ -94,7 +95,7 @@
                     <th style="width: 110px;">Mã Camera</th>
                     <th>RTSP URL Stream</th>
                     <th style="width: 95px; text-align: center;">Trạng Thái</th>
-                    <th style="width: 85px; text-align: center;">Buffer</th>
+                    <th style="width: 85px; text-align: center;">Đoạn Cắt</th>
                     <th style="width: 130px;">Telegram</th>
                     <th style="width: 175px;">Hành Động</th>
                 </tr>
@@ -177,9 +178,10 @@ var cameraManager = {
 
         $.each(list, function(idx, item) {
             var isActive = (item.status === 'active');
-            var statusBadge = isActive ? '<span class="cam-badge-active">Đang chạy</span>' : '<span class="cam-badge-inactive">Đã dừng</span>';
+            var statusBadge = isActive ? '<span class="cam-badge-active">Đang quay</span>' : '<span class="cam-badge-inactive">Đã dừng</span>';
             var teleText = item.telegram_bot_token ? '<span title="' + (item.telegram_chat_id || '') + '">✅ ' + (item.telegram_chat_id ? item.telegram_chat_id : 'Bot') + '</span>' : '<span style="color: #999;">Chưa có</span>';
-            
+            var segMin = Math.round((parseInt(item.segment_time || 180) / 60) * 10) / 10;
+
             var actBtn = '<div class="cam-actions-box">';
             if (isActive) {
                 actBtn += '<a class="btlink" style="color: #ff4d4f;" onclick="cameraManager.control(\'' + item.id + '\', \'stop\')">⏹ Dừng</a>';
@@ -195,7 +197,7 @@ var cameraManager = {
                 '<td><b>' + item.id + '</b></td>' +
                 '<td>' + cameraManager.formatRtspDisplay(item.rtsp_url) + '</td>' +
                 '<td style="text-align: center;">' + statusBadge + '</td>' +
-                '<td style="text-align: center;">' + (item.buffer_count || 0) + ' ts</td>' +
+                '<td style="text-align: center;">' + segMin + ' phút</td>' +
                 '<td>' + teleText + '</td>' +
                 '<td>' + actBtn + '</td>' +
             '</tr>';
@@ -214,6 +216,15 @@ var cameraManager = {
             } else {
                 layer.msg(data.msg || 'Thất bại', { icon: 2 });
             }
+        });
+    },
+
+    triggerArchive: function() {
+        var loadT = layer.msg('Đang kiểm tra và gửi video...', { icon: 16, time: 0, shade: 0.1 });
+        $.post('/plugin?action=a&name=camera_manager&s=trigger_archive', {}, function(res) {
+            layer.close(loadT);
+            var data = (typeof res === 'string') ? JSON.parse(res) : res;
+            layer.msg(data.msg || 'Đã gửi lệnh quét video', { icon: 1 });
         });
     },
 
@@ -250,30 +261,21 @@ var cameraManager = {
             '</div>' +
             '<div style="display: flex; gap: 12px;" class="cam-modal-row">' +
                 '<div style="flex: 1;">' +
+                    '<label>Thời lượng mỗi đoạn video (Giây):</label>' +
+                    '<input type="number" class="bt-input-text" id="m_segment_time" style="width: 100%;" value="' + (c ? c.segment_time : '180') + '" placeholder="180 (3 phút)" />' +
+                    '<div style="font-size: 11px; color: #888; margin-top: 3px;">Khuyên dùng: 180s (3 phút) hoặc 240s (4 phút) để file < 45MB.</div>' +
+                '</div>' +
+                '<div style="flex: 1;">' +
                     '<label>Audio Mode:</label>' +
                     '<select class="bt-input-text" id="m_audio_mode" style="width: 100%;">' +
-                        '<option value="aac" ' + (c && c.audio_mode === 'aac' ? 'selected' : '') + '>AAC Encode (Chuẩn)</option>' +
+                        '<option value="aac" ' + (c && c.audio_mode === 'aac' ? 'selected' : '') + '>AAC Encode (Chuẩn Telegram)</option>' +
                         '<option value="copy" ' + (c && c.audio_mode === 'copy' ? 'selected' : '') + '>Copy Stream</option>' +
                     '</select>' +
-                '</div>' +
-                '<div style="flex: 1;">' +
-                    '<label>Audio Bitrate:</label>' +
-                    '<input class="bt-input-text" id="m_audio_bitrate" style="width: 100%;" value="' + (c ? c.audio_bitrate : '64k') + '" />' +
-                '</div>' +
-            '</div>' +
-            '<div style="display: flex; gap: 12px;" class="cam-modal-row">' +
-                '<div style="flex: 1;">' +
-                    '<label>Giây trước Motion (PRE):</label>' +
-                    '<input type="number" class="bt-input-text" id="m_pre_sec" style="width: 100%;" value="' + (c ? c.pre_seconds : '15') + '" />' +
-                '</div>' +
-                '<div style="flex: 1;">' +
-                    '<label>Giây sau Motion (POST):</label>' +
-                    '<input type="number" class="bt-input-text" id="m_post_sec" style="width: 100%;" value="' + (c ? c.post_seconds : '45') + '" />' +
                 '</div>' +
             '</div>' +
             '<hr style="margin: 12px 0; border: 0; border-top: 1px dashed #ccc;" />' +
             '<div class="cam-modal-row">' +
-                '<label>Telegram Bot Token (để gửi video lưu trữ):</label>' +
+                '<label>Telegram Bot Token (để gửi video):</label>' +
                 '<input class="bt-input-text" id="m_tele_token" style="width: 100%;" value="' + (c ? c.telegram_bot_token : '') + '" placeholder="8047369133:AAE8q2QJw-..." />' +
             '</div>' +
             '<div class="cam-modal-row">' +
@@ -320,10 +322,8 @@ var cameraManager = {
         var payload = {
             id: id,
             rtsp_url: rtsp,
+            segment_time: $('#m_segment_time').val().trim() || '180',
             audio_mode: $('#m_audio_mode').val(),
-            audio_bitrate: $('#m_audio_bitrate').val().trim(),
-            pre_seconds: $('#m_pre_sec').val(),
-            post_seconds: $('#m_post_sec').val(),
             telegram_bot_token: $('#m_tele_token').val().trim(),
             telegram_chat_id: $('#m_tele_chat').val().trim()
         };
@@ -347,7 +347,7 @@ var cameraManager = {
         $.post('/plugin?action=a&name=camera_manager&s=check_update', {}, function(res) {
             layer.close(loadT);
             var data = (typeof res === 'string') ? JSON.parse(res) : res;
-            layer.alert(data.msg || 'Bạn đang sử dụng phiên bản mới nhất (v1.0.1)', { title: 'Thông tin phiên bản', icon: 1 });
+            layer.alert(data.msg || 'Bạn đang sử dụng phiên bản mới nhất (v1.0.2)', { title: 'Thông tin phiên bản', icon: 1 });
         });
     }
 };

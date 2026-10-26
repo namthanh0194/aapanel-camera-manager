@@ -5,11 +5,12 @@ Tài liệu quy chuẩn kiến trúc và nguyên tắc phát triển cho dự á
 ---
 
 ## 1. Mục tiêu dự án
-Xây dựng một Plugin chuẩn của aaPanel (`Third-party Plug-ins`) để:
-- Quản lý tập trung các luồng camera RTSP (thêm, sửa, xóa, cấu hình tham số video/audio).
-- Điều khiển tiến trình ghi rolling buffer (dịch vụ `camera-buffer@<camera_id>.service`).
-- Tự động ghép nối video và gửi lưu trữ lên Telegram khi dọn dẹp bộ đệm định kỳ.
-- Dễ dàng triển khai trên nhiều VPS khác nhau thông qua nút **Import plugins** của aaPanel hoặc cập nhật tự động từ GitHub Releases.
+Xây dựng Plugin aaPanel (`Third-party Plug-ins`) để:
+- Thu trực tiếp luồng camera RTSP và ghi thẳng thành các đoạn video **MP4 hoàn chỉnh** (mặc định 180s - 3 phút, dung lượng ~25-40 MB).
+- Không cắt vụn thành hàng nghìn file `.ts` (bỏ hoàn toàn cơ chế motion PRE/POST cũ để tiết kiệm I/O ổ đĩa và CPU).
+- Tự động đẩy từng đoạn video MP4 lên Telegram Bot (an toàn tuyệt đối dưới hạn mức 50 MB của Telegram Bot API).
+- Sau khi gửi Telegram thành công: xóa ngay lập tức file video trên VPS để chống tràn ổ cứng.
+- Đóng gói cài đặt đơn giản bằng nút **Import plugins** trên aaPanel ở bất kỳ VPS nào.
 
 ---
 
@@ -27,9 +28,9 @@ Xây dựng một Plugin chuẩn của aaPanel (`Third-party Plug-ins`) để:
 ├── build.sh                               <-- Kịch bản đóng gói release camera_manager.zip
 ├── .gitignore                             <-- Bỏ qua file tạm, cache, release zip
 └── core/                                  <-- Scripts lõi hệ thống camera
-    ├── camera-buffer-run.sh               <-- Tiến trình ffmpeg ghi rolling buffer .ts
-    ├── camera-cleanup.sh                  <-- Script gọi định kỳ bởi systemd timer
-    └── cleanup-and-archive.py             <-- Logic ghép TS sang MP4 và upload Telegram
+    ├── camera-buffer-run.sh               <-- ffmpeg ghi trực tiếp stream sang MP4 (segment)
+    ├── camera-cleanup.sh                  <-- Dọn dẹp định kỳ (timer 3 phút)
+    └── cleanup-and-archive.py             <-- Logic gửi MP4 lên Telegram và xóa tức thì
 ```
 
 ---
@@ -37,24 +38,13 @@ Xây dựng một Plugin chuẩn của aaPanel (`Third-party Plug-ins`) để:
 ## 3. Quy tắc cốt lõi khi lập trình (Coding Rules)
 
 ### 3.1. Phân định ranh giới DEV và PRODUCTION
-- **Không bao giờ code trực tiếp** bên trong `/www/server/panel/plugin/camera_manager`.
-- Mọi chỉnh sửa, commit Git phải diễn ra tại `/root/dev/aapanel-camera-manager`.
-- Triển khai sang production thông qua việc đồng bộ hoặc chạy `install.sh update / build.sh`.
+- Không sửa file trực tiếp trong `/www/server/panel/plugin/camera_manager`.
+- Mọi chỉnh sửa được thực hiện ở `/root/dev/aapanel-camera-manager`, sau đó chạy `./build.sh` và `bash install.sh update`.
 
-### 3.2. Bảo toàn dữ liệu & Cấu hình camera
-- Quá trình cài đặt mới (`install`), nâng cấp (`upgrade`), hoặc cập nhật (`update`) **tuyệt đối không được ghi đè, xóa hoặc làm mất** các file cấu hình `.env` của camera tại `/opt/camera/*.env`.
-- Dữ liệu video tạm trong `/tmp/video/cameras/` phải được duy trì, không xóa nhầm khi update plugin.
+### 3.2. Không dùng TS nhỏ lẻ, ghi trực tiếp MP4
+- FFMPEG ghi trực tiếp sang container `.mp4` bằng `-f segment -segment_time <seconds>`.
+- Audio mặc định encode `aac 64k` để tương thích trên thiết bị di động Telegram.
+- File MP4 đã hoàn tất được gửi lên Telegram và xóa ngay lập tức (`os.remove`).
 
-### 3.3. Tương thích chuẩn aaPanel Plugin Architecture
-- `info.json` phải tuân theo đúng schema của aaPanel (`name`, `title`, `versions`, `checks`, `author`, `display`,...).
-- Class Python chính trong `camera_manager_main.py` phải là class `camera_manager_main`. Mọi method public nhận tham số `get` (chứa input parameters từ aaPanel frontend) và trả về dữ liệu JSON qua `public.return_json(...)` hoặc dictionary chuẩn.
-- Giao diện `index.html` cần tương thích với bộ thư viện CSS/JS có sẵn của aaPanel (layui, jQuery, font-awesome) và giao diện Dark/Light mode của panel.
-
-### 3.4. Xử lý an toàn với FFMPEG & Telegram
-- Khống chế dung lượng từng video ghép không vượt quá ngưỡng an toàn **40 MB** để tránh lỗi `413 Request Entity Too Large` của Telegram Bot API.
-- Luôn xóa file MP4 và TS tạm ngay sau khi thực hiện xong lệnh gửi Telegram để tránh đầy bộ nhớ `/tmp`.
-- Kiểm tra tính hợp lệ của camera ID (chỉ cho phép ký tự chữ cái, số và dấu gạch dưới `_`) để ngăn chặn các lỗ hổng path traversal hoặc command injection.
-
-### 3.5. Cơ chế Versioning & Auto Update
-- Mỗi khi phát hành tính năng mới, phải tăng version trong `info.json` theo chuẩn Semantic Versioning (`x.y.z`).
-- Bản cập nhật được đóng gói thành file `.zip` sạch (không chứa file `.git`, `__pycache__`, file rác).
+### 3.3. Giới hạn dung lượng Telegram
+- Khống chế dung lượng file tối đa không vượt quá 48 MB (ngưỡng an toàn của hạn mức 50 MB Telegram Bot API).

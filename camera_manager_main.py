@@ -8,7 +8,6 @@ import time
 import subprocess
 import re
 
-# Thêm panel path
 panelPath = "/www/server/panel"
 os.chdir(panelPath)
 sys.path.insert(0, panelPath + "/class")
@@ -63,7 +62,7 @@ class camera_manager_main:
             status_info = self._get_service_status(cam_id)
 
             buf_dir = os.path.join(CAMERA_ROOT, cam_id, "buffer")
-            ts_count = len(glob.glob(os.path.join(buf_dir, "*.ts"))) if os.path.isdir(buf_dir) else 0
+            mp4_count = len(glob.glob(os.path.join(buf_dir, "*.mp4"))) if os.path.isdir(buf_dir) else 0
 
             cameras.append({
                 "id": cam_id,
@@ -71,14 +70,12 @@ class camera_manager_main:
                 "audio_mode": cfg.get("CAMERA_AUDIO_MODE", "aac"),
                 "audio_bitrate": cfg.get("CAMERA_AUDIO_BITRATE", "64k"),
                 "audio_rate": cfg.get("CAMERA_AUDIO_RATE", "44100"),
-                "pre_seconds": cfg.get("PRE_SECONDS", "15"),
-                "post_seconds": cfg.get("POST_SECONDS", "45"),
-                "target_seconds": cfg.get("TARGET_SECONDS", "60"),
+                "segment_time": cfg.get("SEGMENT_TIME", "180"),
                 "telegram_bot_token": cfg.get("TELEGRAM_BOT_TOKEN", ""),
                 "telegram_chat_id": cfg.get("TELEGRAM_CHAT_ID", ""),
                 "status": status_info.get("status", "unknown"),
                 "enabled": status_info.get("enabled", False),
-                "buffer_count": ts_count
+                "buffer_count": mp4_count
             })
         return json.dumps(cameras, ensure_ascii=False)
 
@@ -92,14 +89,14 @@ class camera_manager_main:
         if not rtsp_url:
             return public.returnMsg(False, "RTSP URL không được để trống")
 
+        segment_time = getattr(get, "segment_time", "180").strip() or "180"
+
         env_path = os.path.join(CONFIG_DIR, f"{cam_id}.env")
         lines = [
             f"CAMERA_ID={cam_id}",
             f"RTSP_URL={rtsp_url}",
             f"CAMERA_BASE_DIR={CAMERA_ROOT}/{cam_id}",
-            f"TARGET_SECONDS={getattr(get, 'target_seconds', '60')}",
-            f"PRE_SECONDS={getattr(get, 'pre_seconds', '15')}",
-            f"POST_SECONDS={getattr(get, 'post_seconds', '45')}",
+            f"SEGMENT_TIME={segment_time}",
             f"CAMERA_AUDIO_MODE={getattr(get, 'audio_mode', 'aac')}",
             f"CAMERA_AUDIO_BITRATE={getattr(get, 'audio_bitrate', '64k')}",
             f"CAMERA_AUDIO_RATE={getattr(get, 'audio_rate', '44100')}",
@@ -122,7 +119,7 @@ class camera_manager_main:
             os.makedirs(d, exist_ok=True)
         public.ExecShell(f"chown -R www:www '{CAMERA_ROOT}/{cam_id}' && chmod -R 775 '{CAMERA_ROOT}/{cam_id}'")
 
-        # Tự động reload service nếu service đang chạy
+        # Reload service nếu service đang chạy
         svc = f"camera-buffer@{cam_id}.service"
         active_check = public.ExecShell(f"systemctl is-active '{svc}'")[0].strip()
         if active_check == "active":
@@ -191,13 +188,22 @@ class camera_manager_main:
         except Exception as e:
             return json.dumps({"ok": False, "error": str(e)}, ensure_ascii=False)
 
-    # 6. API: Kiểm tra và cập nhật từ GitHub
+    # 6. API: Kích hoạt gửi Telegram thủ công ngay lập tức
+    def trigger_archive(self, get):
+        try:
+            cmd = ["python3", "/opt/camera/cleanup-and-archive.py"]
+            subprocess.Popen(cmd)
+            return public.returnMsg(True, "Đã kích hoạt quét và gửi video lên Telegram")
+        except Exception as e:
+            return public.returnMsg(False, f"Lỗi: {e}")
+
+    # 7. API: Kiểm tra phiên bản
     def check_update(self, get):
         plugin_info_path = "/www/server/panel/plugin/camera_manager/info.json"
-        current_version = "1.0.1"
+        current_version = "1.0.2"
         if os.path.exists(plugin_info_path):
             try:
-                current_version = json.loads(public.ReadFile(plugin_info_path)).get("versions", "1.0.0")
+                current_version = json.loads(public.ReadFile(plugin_info_path)).get("versions", "1.0.2")
             except Exception:
                 pass
 

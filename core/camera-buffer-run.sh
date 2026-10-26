@@ -17,11 +17,12 @@ set +a
 
 CAMERA_BASE_DIR="${CAMERA_BASE_DIR:-${CAMERA_ROOT:-/tmp/video/cameras}/$CAMERA_ID}"
 CAMERA_BUFFER_DIR="${CAMERA_BUFFER_DIR:-$CAMERA_BASE_DIR/buffer}"
+SEGMENT_TIME="${SEGMENT_TIME:-180}"  # Mac dinh 180s (3 phut)
 
 mkdir -p "$CAMERA_BUFFER_DIR"
 
 audio_args=(-c:a copy)
-if [[ "${CAMERA_AUDIO_MODE:-copy}" == "aac" ]]; then
+if [[ "${CAMERA_AUDIO_MODE:-aac}" == "aac" ]]; then
   audio_args=(-c:a aac -b:a "${CAMERA_AUDIO_BITRATE:-64k}" -ar "${CAMERA_AUDIO_RATE:-44100}")
 fi
 
@@ -37,8 +38,7 @@ exec ffmpeg \
   -c:v copy \
   "${audio_args[@]}" \
   -f segment \
-  -segment_time 5 \
-  -segment_atclocktime 1 \
+  -segment_time "$SEGMENT_TIME" \
   -reset_timestamps 1 \
   -strftime 1 \
-  "$CAMERA_BUFFER_DIR/%Y%m%d_%H%M%S.ts"
+  "$CAMERA_BUFFER_DIR/%Y%m%d_%H%M%S.mp4"

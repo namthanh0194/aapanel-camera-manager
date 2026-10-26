@@ -1,17 +1,15 @@
 #!/usr/bin/env python3
+# coding: utf-8
 import os
 import sys
 import glob
 import time
 import subprocess
 import json
-import urllib.request
-import urllib.error
 from datetime import datetime
 
 CAMERA_ROOT = os.environ.get("CAMERA_ROOT", "/tmp/video/cameras")
-MAX_BATCH_BYTES = 40 * 1024 * 1024  # 40MB max per batch for Telegram 50MB limit
-MIN_AGE_MINUTES = 10  # Files older than 10 minutes
+MAX_UPLOAD_BYTES = 48 * 1024 * 1024  # 48MB max for Telegram 50MB limit
 
 def load_env(env_path):
     config = {}
@@ -61,117 +59,74 @@ def process_camera(camera_dir):
     bot_token = env_cfg.get("TELEGRAM_BOT_TOKEN")
     chat_id = env_cfg.get("TELEGRAM_CHAT_ID")
 
-    # Find .ts files older than MIN_AGE_MINUTES
+    # Lay tat ca file .mp4 sap xep theo thoi gian
+    mp4_files = sorted(glob.glob(os.path.join(buffer_dir, "*.mp4")))
+    if not mp4_files:
+        return
+
+    # File cuoi cung thuong dang duoc ffmpeg ghi -> chi xu ly cac file da ghi xong (tu file ap chot tro ve truoc)
+    # Neu chi co 1 file thi kiem tra neu da ngung ghi > 10 giay thi moi xu ly
     now = time.time()
-    ts_files = sorted(glob.glob(os.path.join(buffer_dir, "*.ts")))
-    expired_files = []
-    for f in ts_files:
-        try:
-            mtime = os.path.getmtime(f)
-            size = os.path.getsize(f)
-            if (now - mtime) >= (MIN_AGE_MINUTES * 60) and size > 0:
-                expired_files.append(f)
-        except OSError:
-            pass
+    ready_files = []
+    
+    if len(mp4_files) > 1:
+        ready_files = mp4_files[:-1]
+    else:
+        # Chi co 1 file duy nhat (vi du khi camera dung quay)
+        single_f = mp4_files[0]
+        if (now - os.path.getmtime(single_f)) > 15:
+            ready_files = [single_f]
 
-    if not expired_files:
+    if not ready_files:
         return
 
-    print(f"[{camera_id}] Found {len(expired_files)} expired .ts files.")
+    print(f"[{camera_id}] Tim thay {len(ready_files)} video MP4 san sang xu ly.")
 
-    # If no telegram credentials, just delete them
-    if not bot_token or not chat_id:
-        print(f"[{camera_id}] No Telegram config found, deleting expired files directly.")
-        for f in expired_files:
-            try:
+    for f in ready_files:
+        try:
+            fsize = os.path.getsize(f)
+            if fsize == 0:
                 os.remove(f)
-            except OSError:
-                pass
-        return
-
-    # Group into batches (< MAX_BATCH_BYTES)
-    batches = []
-    current_batch = []
-    current_size = 0
-
-    for f in expired_files:
-        fsize = os.path.getsize(f)
-        if current_size + fsize > MAX_BATCH_BYTES and current_batch:
-            batches.append(current_batch)
-            current_batch = [f]
-            current_size = fsize
-        else:
-            current_batch.append(f)
-            current_size += fsize
-
-    if current_batch:
-        batches.append(current_batch)
-
-    # Process each batch
-    for b_idx, batch in enumerate(batches):
-        start_name = os.path.splitext(os.path.basename(batch[0]))[0]
-        end_name = os.path.splitext(os.path.basename(batch[-1]))[0]
-
-        temp_ts = os.path.join(camera_dir, f"concat_{b_idx}_{start_name}.ts")
-        temp_mp4 = os.path.join(camera_dir, f"archive_{start_name}_{end_name}.mp4")
-
-        try:
-            # 1. Concat binary TS
-            with open(temp_ts, "wb") as out_ts:
-                for bf in batch:
-                    with open(bf, "rb") as in_ts:
-                        out_ts.write(in_ts.read())
-
-            # 2. Remux to MP4
-            cmd_remux = [
-                "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
-                "-i", temp_ts,
-                "-c", "copy",
-                "-movflags", "+faststart",
-                temp_mp4
-            ]
-            remux_res = subprocess.run(cmd_remux)
-            if remux_res.returncode != 0:
-                print(f"[{camera_id}] Remux failed for batch {b_idx}", file=sys.stderr)
                 continue
 
-            # Format caption time
+            fname = os.path.splitext(os.path.basename(f))[0]
             try:
-                t1 = datetime.strptime(start_name, "%Y%m%d_%H%M%S").strftime("%H:%M:%S %d/%m/%Y")
-                t2 = datetime.strptime(end_name, "%Y%m%d_%H%M%S").strftime("%H:%M:%S %d/%m/%Y")
-                caption = f"📹 [Camera: {camera_id}]\n⏱ Video lưu trữ: {t1} - {t2}"
+                t = datetime.strptime(fname, "%Y%m%d_%H%M%S").strftime("%H:%M:%S %d/%m/%Y")
+                caption = f"📹 [Camera: {camera_id}]\n⏱ Thời gian: {t}"
             except Exception:
-                caption = f"📹 [Camera: {camera_id}]\n⏱ {start_name} -> {end_name}"
+                caption = f"📹 [Camera: {camera_id}]\n⏱ Video: {fname}"
 
-            # 3. Send to Telegram
-            print(f"[{camera_id}] Sending batch {b_idx+1}/{len(batches)} ({os.path.getsize(temp_mp4)} bytes) to Telegram...")
-            success = send_telegram_video(bot_token, chat_id, temp_mp4, caption)
+            # Neu khong co Telegram config -> chi giu lai file gan nhat hoac xoa file cu
+            if not bot_token or not chat_id:
+                if (now - os.path.getmtime(f)) > 600:
+                    os.remove(f)
+                continue
 
-            # 4. Remove temporary merged MP4 and TS
-            if os.path.exists(temp_mp4):
-                os.remove(temp_mp4)
-            if os.path.exists(temp_ts):
-                os.remove(temp_ts)
+            # Kiem tra dung luong vuot nguong 48MB Telegram
+            if fsize > MAX_UPLOAD_BYTES:
+                print(f"[{camera_id}] File {f} vuot qua 48MB ({fsize} bytes), bo qua.", file=sys.stderr)
+                os.remove(f)
+                continue
 
-            # 5. Delete source TS files only if sent successfully
+            # Ban len Telegram
+            print(f"[{camera_id}] Dang gui {os.path.basename(f)} ({round(fsize/1024/1024, 2)} MB) len Telegram...")
+            success = send_telegram_video(bot_token, chat_id, f, caption)
+
+            # Gui thanh cong -> XOA LUON FILE MP4
             if success:
-                print(f"[{camera_id}] Successfully sent batch {b_idx+1}. Deleting {len(batch)} source .ts files.")
-                for bf in batch:
-                    try:
-                        os.remove(bf)
-                    except OSError:
-                        pass
+                print(f"[{camera_id}] Gui thanh cong. Xoa file {os.path.basename(f)}")
+                os.remove(f)
             else:
-                print(f"[{camera_id}] Telegram send failed for batch {b_idx+1}, keeping source .ts files.")
+                print(f"[{camera_id}] Gui that bai, giu lai file de thu lai sau.", file=sys.stderr)
 
         except Exception as e:
-            print(f"[{camera_id}] Error processing batch {b_idx}: {e}", file=sys.stderr)
-            if os.path.exists(temp_mp4):
-                try: os.remove(temp_mp4)
-                except OSError: pass
-            if os.path.exists(temp_ts):
-                try: os.remove(temp_ts)
-                except OSError: pass
+            print(f"[{camera_id}] Loi xu ly file {f}: {e}", file=sys.stderr)
+
+    # Don dep file .ts cu neu con ton dong tu he thong truoc
+    old_ts_files = glob.glob(os.path.join(buffer_dir, "*.ts"))
+    for ts_f in old_ts_files:
+        try: os.remove(ts_f)
+        except OSError: pass
 
 def main():
     if not os.path.isdir(CAMERA_ROOT):

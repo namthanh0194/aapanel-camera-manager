@@ -12,13 +12,11 @@ Install_Camera_Manager() {
     echo "Dang cai dat Camera Manager Plugin cho aaPanel..."
     echo "===================================================="
 
-    # 1. Cai dat goi phu thuoc neu chua co
     if ! command -v ffmpeg &> /dev/null; then
         echo "Cai dat ffmpeg..."
         apt-get update -y && apt-get install -y ffmpeg
     fi
 
-    # 2. Tao thu muc cau hinh va phan quyen
     mkdir -p "$CAMERA_DIR"
     mkdir -p "$CAMERA_ROOT"
     chown -R root:www "$CAMERA_DIR"
@@ -26,15 +24,13 @@ Install_Camera_Manager() {
     chown -R www:www "$CAMERA_ROOT"
     chmod -R 775 "$CAMERA_ROOT"
 
-    # 3. Sao chep core scripts vao /opt/camera neu chua co
     if [ -d "$PLUGIN_DIR/core" ]; then
-        cp -u "$PLUGIN_DIR/core/camera-buffer-run.sh" "$CAMERA_DIR/" || true
-        cp -u "$PLUGIN_DIR/core/camera-cleanup.sh" "$CAMERA_DIR/" || true
-        cp -u "$PLUGIN_DIR/core/cleanup-and-archive.py" "$CAMERA_DIR/" || true
+        cp "$PLUGIN_DIR/core/camera-buffer-run.sh" "$CAMERA_DIR/"
+        cp "$PLUGIN_DIR/core/camera-cleanup.sh" "$CAMERA_DIR/"
+        cp "$PLUGIN_DIR/core/cleanup-and-archive.py" "$CAMERA_DIR/"
         chmod +x "$CAMERA_DIR"/*.sh "$CAMERA_DIR"/*.py 2>/dev/null || true
     fi
 
-    # 4. Cai dat systemd template service neu chua co
     if [ ! -f /etc/systemd/system/camera-buffer@.service ]; then
         cat << 'SVC' > /etc/systemd/system/camera-buffer@.service
 [Unit]
@@ -59,15 +55,14 @@ SVC
         systemctl daemon-reload
     fi
 
-    # 5. Cai dat cleanup timer neu chua co
     if [ ! -f /etc/systemd/system/camera-cleanup.timer ]; then
         cat << 'TMR' > /etc/systemd/system/camera-cleanup.timer
 [Unit]
-Description=Run camera cleanup every 10 minutes
+Description=Run camera cleanup every 3 minutes
 
 [Timer]
 OnBootSec=1min
-OnUnitActiveSec=10min
+OnUnitActiveSec=3min
 AccuracySec=10s
 Unit=camera-cleanup.service
 
@@ -76,7 +71,7 @@ WantedBy=timers.target
 TMR
         cat << 'CSVC' > /etc/systemd/system/camera-cleanup.service
 [Unit]
-Description=Clean old camera buffer and output files
+Description=Clean old camera buffer and send to Telegram
 
 [Service]
 Type=oneshot
@@ -91,7 +86,6 @@ CSVC
 
 Update_Camera_Manager() {
     echo "Dang cap nhat Camera Manager Plugin..."
-    # Cap nhat script core nhung bao toan file .env
     if [ -d "$PLUGIN_DIR/core" ]; then
         cp "$PLUGIN_DIR/core/camera-buffer-run.sh" "$CAMERA_DIR/"
         cp "$PLUGIN_DIR/core/camera-cleanup.sh" "$CAMERA_DIR/"
@@ -102,8 +96,7 @@ Update_Camera_Manager() {
 }
 
 Uninstall_Camera_Manager() {
-    echo "Gỡ bỏ Camera Manager Plugin..."
-    # Chi go bo file plugin, khong xoa data /opt/camera de an toan
+    echo "Go bo Camera Manager Plugin..."
     rm -rf "$PLUGIN_DIR"
     echo "Go bo hoan tat!"
 }
