@@ -194,7 +194,7 @@ class camera_manager_main:
     # 6. API: Kiểm tra và cập nhật từ GitHub
     def check_update(self, get):
         plugin_info_path = "/www/server/panel/plugin/camera_manager/info.json"
-        current_version = "1.0.0"
+        current_version = "1.0.1"
         if os.path.exists(plugin_info_path):
             try:
                 current_version = json.loads(public.ReadFile(plugin_info_path)).get("versions", "1.0.0")
