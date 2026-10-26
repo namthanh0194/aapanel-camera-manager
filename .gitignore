@@ -1,10 +1,31 @@
+# Python cache & compiled files
 __pycache__/
-*.pyc
-*.pyo
-*.zip
-*.tar.gz
-*.swp
-*~
-.DS_Store
+*.py[cod]
+*$py.class
+*.so
+
+# Distribution & Build packages
 dist/
 build/
+*.egg-info/
+*.zip
+*.tar.gz
+
+# Temporary, testing & scratch directories
+tmp/
+*.tmp
+*.bak
+*.swp
+*~
+
+# Operating system & Editor files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.sublime-project
+*.sublime-workspace
+
+# Runtime logs & credentials (never commit sensitive files)
+*.log
+*.env

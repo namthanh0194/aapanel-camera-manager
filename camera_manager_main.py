@@ -14,6 +14,9 @@ os.chdir(panelPath)
 sys.path.insert(0, panelPath + "/class")
 import public
 
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "core"))
+from camera_manager_log import read_events, remove_logged, write_event
+
 CONFIG_DIR = "/opt/camera"
 CAMERA_ROOT = "/tmp/video/cameras"
 
@@ -93,6 +96,7 @@ class camera_manager_main:
         segment_time = getattr(get, "segment_time", "180").strip() or "180"
 
         env_path = os.path.join(CONFIG_DIR, f"{cam_id}.env")
+        previous = self._load_camera_env(env_path)
         lines = [
             f"CAMERA_ID={cam_id}",
             f"RTSP_URL={rtsp_url}",
@@ -125,12 +129,17 @@ class camera_manager_main:
         if active_check == "active":
             public.ExecShell(f"systemctl restart '{svc}'")
 
+        changed = [line.split("=", 1)[0] for line in lines if previous.get(line.split("=", 1)[0]) != line.split("=", 1)[1]]
+        for key in ("TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID"):
+            if key in previous and not any(line.startswith(key + "=") for line in lines):
+                changed.append(key)
+        write_event("plugin", "info", cam_id, "camera_saved", "Đã cập nhật cấu hình camera" if previous else "Đã thêm camera", changed_fields=changed, restarted=active_check == "active")
         return public.returnMsg(True, "Lưu cấu hình camera thành công")
 
     # 3. API: Xóa camera
     def delete_camera(self, get):
         cam_id = getattr(get, "id", "").strip()
-        if not cam_id:
+        if not re.fullmatch(r"[a-z0-9_]+", cam_id):
             return public.returnMsg(False, "Chưa chọn camera để xóa")
 
         svc = f"camera-buffer@{cam_id}.service"
@@ -141,13 +150,14 @@ class camera_manager_main:
         if os.path.exists(env_file):
             os.remove(env_file)
 
+        write_event("plugin", "info", cam_id, "camera_deleted", "Đã xóa cấu hình camera; video không bị xóa bởi thao tác này")
         return public.returnMsg(True, f"Đã xóa camera {cam_id}")
 
     # 4. API: Điều khiển dịch vụ camera (start, stop, restart)
     def control_service(self, get):
         cam_id = getattr(get, "id", "").strip()
         action = getattr(get, "act", "").strip()
-        if not cam_id or action not in ["start", "stop", "restart"]:
+        if not re.fullmatch(r"[a-z0-9_]+", cam_id) or action not in ["start", "stop", "restart"]:
             return public.returnMsg(False, "Tham số điều khiển không hợp lệ")
 
         svc = f"camera-buffer@{cam_id}.service"
@@ -160,6 +170,9 @@ class camera_manager_main:
             public.ExecShell(f"systemctl restart '{svc}'")
 
         status_info = self._get_service_status(cam_id)
+        expected_status = "inactive" if action == "stop" else "active"
+        write_event("plugin", "info" if status_info.get("status") == expected_status else "error", cam_id,
+                    "service_control", "Thao tác dịch vụ camera", action=action, result=status_info.get("status"))
         return json.dumps({"status": True, "msg": f"Đã thực hiện {action} camera {cam_id}", "info": status_info}, ensure_ascii=False)
 
     # 5. API: Kiểm tra kết nối RTSP (Test stream)
@@ -191,11 +204,28 @@ class camera_manager_main:
     # 6. API: Kích hoạt gửi Telegram thủ công ngay lập tức
     def trigger_archive(self, get):
         try:
-            cmd = ["python3", "/opt/camera/cleanup-and-archive.py"]
+            cmd = ["python3", "-B", "/opt/camera/cleanup-and-archive.py"]
             subprocess.Popen(cmd)
+            write_event("plugin", "info", "", "archive_requested", "Người dùng kích hoạt quét và gửi Telegram")
             return public.returnMsg(True, "Đã kích hoạt quét và gửi video lên Telegram")
         except Exception as e:
+            write_event("plugin", "error", "", "archive_failed", "Không kích hoạt được gửi Telegram", error=str(e))
             return public.returnMsg(False, f"Lỗi: {e}")
+
+    def get_logs(self, get):
+        try:
+            return json.dumps(read_events(
+                camera=str(getattr(get, "camera", "all")), category=str(getattr(get, "category", "all")),
+                level=str(getattr(get, "level", "all")), since=getattr(get, "since", 0),
+                until=getattr(get, "until", 0), limit=getattr(get, "limit", 200)
+            ), ensure_ascii=False)
+        except (ValueError, TypeError, OSError) as error:
+            return json.dumps({"status": False, "msg": str(error), "entries": []}, ensure_ascii=False)
+
+    def get_log_ui(self, get):
+        path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ui", "logs.html")
+        with open(path, "r", encoding="utf-8") as source:
+            return json.dumps({"status": True, "html": source.read()}, ensure_ascii=False)
 
     # 7. API: Quét kiểm tra trạng thái lưu trữ & rác
     def get_storage_status(self, get):
@@ -267,6 +297,9 @@ class camera_manager_main:
     def clean_storage(self, get):
         cam_id = getattr(get, "id", "all").strip()
         mode = getattr(get, "mode", "trash_only").strip() # trash_only hoặc all_buffer
+        if (cam_id != "all" and not re.fullmatch(r"[a-z0-9_]+", cam_id)) or mode not in ("trash_only", "all_buffer"):
+            return json.dumps({"status": False, "msg": "Tham số dọn lưu trữ không hợp lệ"}, ensure_ascii=False)
+        write_event("plugin", "warning", "" if cam_id == "all" else cam_id, "storage_cleanup_requested", "Người dùng yêu cầu dọn lưu trữ", mode=mode)
         
         deleted_count = 0
         freed_bytes = 0
@@ -292,13 +325,12 @@ class camera_manager_main:
                         for root, dirs, files in os.walk(sub_p, topdown=False):
                             for f in files:
                                 fp = os.path.join(root, f)
-                                freed_bytes += os.path.getsize(fp)
-                                os.remove(fp)
+                                freed_bytes += remove_logged(fp, cid, "manual_legacy_cleanup")
                                 deleted_count += 1
                             for d in dirs: os.rmdir(os.path.join(root, d))
                         os.rmdir(sub_p)
-                    except Exception:
-                        pass
+                    except Exception as error:
+                        write_event("storage", "error", cid, "delete_failed", "Không dọn được thư mục cũ", file=sub_p, error=str(error))
 
             if not os.path.isdir(buf_dir):
                 continue
@@ -310,11 +342,10 @@ class camera_manager_main:
                 try:
                     sz = os.path.getsize(fp)
                     if f.endswith(".ts") or sz == 0:
-                        freed_bytes += sz
-                        os.remove(fp)
+                        freed_bytes += remove_logged(fp, cid, "manual_trash_cleanup")
                         deleted_count += 1
-                except OSError:
-                    pass
+                except OSError as error:
+                    write_event("storage", "error", cid, "delete_failed", "Không xóa được file rác", file=fp, error=str(error))
 
             # 3. Nếu chọn dọn sạch toàn bộ buffer (all_buffer):
             # Xóa các file mp4 đã quay xong (giữ lại file mp4 mới nhất đang được ffmpeg mở ghi)
@@ -324,23 +355,22 @@ class camera_manager_main:
                     # Bỏ qua file cuối cùng đang ghi
                     for old_mp4 in mp4_files[:-1]:
                         try:
-                            freed_bytes += os.path.getsize(old_mp4)
-                            os.remove(old_mp4)
+                            freed_bytes += remove_logged(old_mp4, cid, "manual_buffer_cleanup")
                             deleted_count += 1
-                        except OSError:
-                            pass
+                        except OSError as error:
+                            write_event("storage", "error", cid, "delete_failed", "Không xóa được video", file=old_mp4, error=str(error))
                 elif len(mp4_files) == 1:
                     # Nếu service của camera này đã dừng (inactive) thì có thể xóa nốt file duy nhất
                     svc_status = self._get_service_status(cid)
                     if svc_status.get("status") != "active":
                         try:
-                            freed_bytes += os.path.getsize(mp4_files[0])
-                            os.remove(mp4_files[0])
+                            freed_bytes += remove_logged(mp4_files[0], cid, "manual_buffer_cleanup")
                             deleted_count += 1
-                        except OSError:
-                            pass
+                        except OSError as error:
+                            write_event("storage", "error", cid, "delete_failed", "Không xóa được video", file=mp4_files[0], error=str(error))
 
         freed_mb = round(freed_bytes / (1024 * 1024), 2)
+        write_event("storage", "info", "" if cam_id == "all" else cam_id, "cleanup_completed", "Hoàn tất dọn lưu trữ thủ công", deleted_count=deleted_count, freed_bytes=freed_bytes, mode=mode)
         return json.dumps({
             "status": True,
             "msg": f"Đã dọn dẹp {deleted_count} file, giải phóng {freed_mb} MB dung lượng!"

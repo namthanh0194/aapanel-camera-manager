@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 # coding: utf-8
 import os
-import sys
 import glob
 import time
 import subprocess
 import json
 from datetime import datetime
+from camera_manager_log import inspect_video, remove_logged, write_event
 
 CAMERA_ROOT = os.environ.get("CAMERA_ROOT", "/tmp/video/cameras")
 MAX_UPLOAD_BYTES = 48 * 1024 * 1024  # 48MB max for Telegram 50MB limit
@@ -23,7 +23,7 @@ def load_env(env_path):
                 config[k.strip()] = v.strip().strip("\"'")
     return config
 
-def send_telegram_video(bot_token, chat_id, video_path, caption):
+def send_telegram_video(bot_token, chat_id, video_path, caption, camera_id=""):
     cmd = [
         "curl", "-s", "-S",
         "--connect-timeout", "30",
@@ -33,19 +33,27 @@ def send_telegram_video(bot_token, chat_id, video_path, caption):
         "-F", f"caption={caption}",
         f"https://api.telegram.org/bot{bot_token}/sendVideo"
     ]
-    res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    started = time.monotonic()
+    filename = os.path.basename(video_path)
+    try:
+        res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    except OSError as error:
+        write_event("telegram", "error", camera_id, "upload_failed", "Không chạy được lệnh gửi Telegram; giữ file để thử lại", file=filename, error=str(error))
+        return False
+    elapsed = round(time.monotonic() - started, 2)
     if res.returncode != 0:
-        print(f"[ERROR] curl failed: {res.stderr}", file=sys.stderr)
+        write_event("telegram", "error", camera_id, "upload_failed", "Gửi thất bại; giữ file để thử lại", file=filename, elapsed_seconds=elapsed, error=res.stderr, exit_code=res.returncode)
         return False
     try:
         data = json.loads(res.stdout)
         if data.get("ok"):
+            write_event("telegram", "info", camera_id, "upload_success", "Telegram xác nhận gửi thành công", file=filename, elapsed_seconds=elapsed, message_id=data.get("result", {}).get("message_id"))
             return True
         else:
-            print(f"[ERROR] Telegram API error: {data.get('description')}", file=sys.stderr)
+            write_event("telegram", "error", camera_id, "upload_failed", "Telegram từ chối; giữ file để thử lại", file=filename, elapsed_seconds=elapsed, error=data.get("description"), error_code=data.get("error_code"), retry_after=data.get("parameters", {}).get("retry_after"))
             return False
     except Exception as e:
-        print(f"[ERROR] Failed to parse Telegram response: {e}\nOutput: {res.stdout}", file=sys.stderr)
+        write_event("telegram", "error", camera_id, "upload_failed", "Phản hồi Telegram không hợp lệ; giữ file để thử lại", file=filename, elapsed_seconds=elapsed, error=str(e))
         return False
 
 def process_camera(camera_dir):
@@ -80,14 +88,14 @@ def process_camera(camera_dir):
     if not ready_files:
         return
 
-    print(f"[{camera_id}] Tim thay {len(ready_files)} video MP4 san sang xu ly.")
-
     for f in ready_files:
         try:
             fsize = os.path.getsize(f)
             if fsize == 0:
-                os.remove(f)
+                remove_logged(f, camera_id, "empty_file")
                 continue
+
+            duration = inspect_video(f, camera_id, env_cfg.get("SEGMENT_TIME", "180"))
 
             fname = os.path.splitext(os.path.basename(f))[0]
             try:
@@ -99,33 +107,32 @@ def process_camera(camera_dir):
             # Neu khong co Telegram config -> chi giu lai file gan nhat hoac xoa file cu
             if not bot_token or not chat_id:
                 if (now - os.path.getmtime(f)) > 600:
-                    os.remove(f)
+                    remove_logged(f, camera_id, "no_telegram_config_10m", False)
+                else:
+                    write_event("telegram", "warning", camera_id, "not_configured", "Chưa cấu hình Telegram; hiện giữ file, chính sách cũ xóa sau 10 phút", file=os.path.basename(f))
                 continue
 
             # Kiem tra dung luong vuot nguong 48MB Telegram
             if fsize > MAX_UPLOAD_BYTES:
-                print(f"[{camera_id}] File {f} vuot qua 48MB ({fsize} bytes), bo qua.", file=sys.stderr)
-                os.remove(f)
+                write_event("telegram", "error", camera_id, "upload_oversize", "Không gửi được: video vượt ngưỡng 48 MiB; xóa theo chính sách hiện tại", file=os.path.basename(f), bytes=fsize)
+                remove_logged(f, camera_id, "upload_oversize", False)
                 continue
 
             # Ban len Telegram
-            print(f"[{camera_id}] Dang gui {os.path.basename(f)} ({round(fsize/1024/1024, 2)} MB) len Telegram...")
-            success = send_telegram_video(bot_token, chat_id, f, caption)
+            write_event("telegram", "info", camera_id, "upload_started", "Bắt đầu gửi video lên Telegram", file=os.path.basename(f), bytes=fsize, duration_seconds=duration)
+            success = send_telegram_video(bot_token, chat_id, f, caption, camera_id)
 
             # Gui thanh cong -> XOA LUON FILE MP4
             if success:
-                print(f"[{camera_id}] Gui thanh cong. Xoa file {os.path.basename(f)}")
-                os.remove(f)
-            else:
-                print(f"[{camera_id}] Gui that bai, giu lai file de thu lai sau.", file=sys.stderr)
+                remove_logged(f, camera_id, "telegram_success", True)
 
         except Exception as e:
-            print(f"[{camera_id}] Loi xu ly file {f}: {e}", file=sys.stderr)
+            write_event("telegram", "error", camera_id, "processing_failed", "Lỗi xử lý video", file=os.path.basename(f), error=str(e))
 
     # Don dep file .ts cu neu con ton dong tu he thong truoc
     old_ts_files = glob.glob(os.path.join(buffer_dir, "*.ts"))
     for ts_f in old_ts_files:
-        try: os.remove(ts_f)
+        try: remove_logged(ts_f, camera_id, "legacy_ts")
         except OSError: pass
 
 def main():

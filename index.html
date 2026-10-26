@@ -110,6 +110,80 @@
 .cam-path-note summary { cursor: pointer; font-weight: bold; }
 .cam-path-note ul { margin: 8px 0 0 18px; line-height: 1.7; }
 .cam-path-note code { font-size: 11px; }
+
+/* Dark mode support for aaPanel Layui Layer */
+.cam-dark-layer.layui-layer {
+    background-color: #18191c !important;
+    color: #c7c7c7 !important;
+    border: 1px solid #434343 !important;
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.6) !important;
+}
+.cam-dark-layer .layui-layer-title {
+    background-color: #202020 !important;
+    color: #e0e0e0 !important;
+    border-bottom: 1px solid #333333 !important;
+}
+.cam-dark-layer .layui-layer-setwin .layui-layer-close {
+    filter: invert(0.8) brightness(1.2);
+}
+.cam-dark-layer .layui-layer-content {
+    color: #c7c7c7 !important;
+    background-color: #18191c !important;
+}
+.cam-dark-layer input.bt-input-text,
+.cam-dark-layer select.bt-input-text,
+.cam-dark-layer textarea.bt-input-text {
+    background-color: #26272b !important;
+    color: #e0e0e0 !important;
+    border: 1px solid #434343 !important;
+}
+.cam-dark-layer input.bt-input-text:focus,
+.cam-dark-layer select.bt-input-text:focus {
+    border-color: #20a53a !important;
+}
+.cam-dark-layer hr {
+    border-top: 1px dashed #434343 !important;
+}
+.cam-dark-layer .btn-default {
+    background-color: #2a2b30 !important;
+    color: #d8dce2 !important;
+    border-color: #434343 !important;
+}
+.cam-dark-layer .btn-default:hover {
+    background-color: #35363c !important;
+    color: #ffffff !important;
+    border-color: #555555 !important;
+}
+.cam-dark-layer .table {
+    color: #c7c7c7 !important;
+}
+.cam-dark-layer .table > thead > tr > th {
+    border-bottom: 1px solid #383838 !important;
+    color: #aaa !important;
+}
+.cam-dark-layer .table > tbody > tr > td {
+    border-top: 1px solid #2d2d2d !important;
+}
+.cam-dark-layer .table-hover > tbody > tr:hover {
+    background-color: #242529 !important;
+}
+.cam-dark-layer .cam-path-note {
+    background: rgba(255, 255, 255, 0.02) !important;
+    border-color: #383838 !important;
+    color: #aaa !important;
+}
+.cam-dark-layer .cam-path-note code {
+    background: #25262a !important;
+    color: #6ee7b7 !important;
+    border: 1px solid #3a3b40 !important;
+}
+.cam-dark-layer .storage-card {
+    background: rgba(255, 255, 255, 0.03) !important;
+    border-color: #383838 !important;
+}
+.cam-dark-layer .storage-bar-bg {
+    background: #2c2d33 !important;
+}
 </style>
 
 <div class="cam-container">
@@ -118,10 +192,11 @@
             <button class="btn btn-success btn-sm" onclick="cameraManager.openModal(false)">➕ Thêm Camera</button>
             <button class="btn btn-default btn-sm" style="color: #20a53a; font-weight: bold;" onclick="cameraManager.openStorageModal()">🧹 Quét & Dọn Lưu Trữ</button>
             <button class="btn btn-default btn-sm" onclick="cameraManager.triggerArchive()">🚀 Bắn Telegram Ngay</button>
+            <button class="btn btn-default btn-sm" onclick="cameraManager.openLogs()">📜 Nhật ký</button>
             <button class="btn btn-default btn-sm" onclick="cameraManager.reloadList()">🔄 Làm Mới</button>
         </div>
         <div>
-            <span id="camPluginVersion" style="font-size: 12px; color: #888; margin-right: 8px;">v1.0.4</span>
+            <span id="camPluginVersion" style="font-size: 12px; color: #888; margin-right: 8px;">v1.0.5</span>
             <button class="btn btn-default btn-sm" onclick="cameraManager.checkUpdate()">☁️ Kiểm tra Update</button>
         </div>
     </div>
@@ -131,6 +206,7 @@
         <ul>
             <li><code>/www/server/panel/plugin/camera_manager/</code> — mã nguồn và giao diện plugin aaPanel.</li>
             <li><code>/opt/camera/</code> — cấu hình từng camera (<code>*.env</code>) và script ghi/gửi video.</li>
+            <li><code>/var/log/camera_manager/</code> — nhật ký chung tối đa 20 MiB (4 file × 5 MiB), tự xoay vòng và xóa bản cũ; mật khẩu/token được che.</li>
             <li><code>/tmp/video/cameras/&lt;camera_id&gt;/buffer/</code> — các đoạn MP4 đang ghi hoặc chờ gửi Telegram; gửi thành công thì tự xóa.</li>
             <li><code>/etc/systemd/system/camera-buffer@.service</code> — mẫu dịch vụ ghi stream; <code>camera-cleanup.service</code> và <code>camera-cleanup.timer</code> — gửi/dọn buffer định kỳ.</li>
             <li>Gỡ plugin khỏi aaPanel chỉ xóa mã plugin; cấu hình camera, video và dịch vụ hệ thống ở các đường dẫn trên được giữ lại.</li>
@@ -159,8 +235,89 @@
 <script type="text/javascript">
 var cameraManager = {
     cams: [],
+
+    openLogs: function(cameraId) {
+        if (window.cameraManagerLogs && window.cameraManagerLogs.version === '1.0.5') {
+            window.cameraManagerLogs.open(this.cams, cameraId);
+            return;
+        }
+        var loading = layer.msg('Đang tải giao diện nhật ký...', { icon: 16, time: 0 });
+        $.ajax({ url: '/plugin?action=a&name=camera_manager&s=get_log_ui', type: 'POST', timeout: 15000 }).done(function(response) {
+            try {
+                var data = typeof response === 'string' ? JSON.parse(response) : response;
+                if (!data.status) throw new Error('log UI unavailable');
+                $('#camLogAssets').remove();
+                $('<div id="camLogAssets" style="display:none;"></div>').appendTo('body').append(data.html);
+                window.cameraManagerLogs.open(cameraManager.cams, cameraId);
+            } catch (error) { layer.msg('Không tải được giao diện nhật ký', { icon: 2 }); }
+        }).fail(function() { layer.msg('Không tải được giao diện nhật ký', { icon: 2 }); }).always(function() { layer.close(loading); });
+    },
     
+
+    isDarkTheme: function() {
+        var doc = document.documentElement;
+        var mode = doc.getAttribute('theme-mode');
+        if (mode === 'dark' || doc.classList.contains('dark')) return true;
+        if (mode === 'light' || doc.classList.contains('light')) return false;
+        return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+    },
+
+    syncTheme: function() {
+        var isDark = this.isDarkTheme();
+        var container = $('.cam-container');
+        if (isDark) {
+            container.addClass('dark');
+        } else {
+            container.removeClass('dark');
+        }
+
+        // Apply dark class to relevant layui-layer dialogs
+        $('.layui-layer').each(function() {
+            var $layer = $(this);
+            var isPluginLayer = $layer.find('.cam-container, .storage-card, #m_cam_id, .cm-logs').length > 0;
+            if (isPluginLayer) {
+                if (isDark) {
+                    $layer.addClass('cam-dark-layer');
+                } else {
+                    $layer.removeClass('cam-dark-layer');
+                }
+            }
+        });
+    },
+
+    initThemeWatcher: function() {
+        var self = this;
+        self.syncTheme();
+
+        // Observe changes on <html> attributes (class, theme-mode)
+        if (window.MutationObserver && !self._themeObserver) {
+            self._themeObserver = new MutationObserver(function() {
+                self.syncTheme();
+            });
+            self._themeObserver.observe(document.documentElement, {
+                attributes: true,
+                attributeFilter: ['class', 'theme-mode']
+            });
+        }
+
+        // Listen for OS color scheme change
+        if (window.matchMedia && !self._mediaBound) {
+            self._mediaBound = true;
+            try {
+                window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', function() {
+                    self.syncTheme();
+                });
+            } catch (e) {
+                try {
+                    window.matchMedia('(prefers-color-scheme: dark)').addListener(function() {
+                        self.syncTheme();
+                    });
+                } catch (err) {}
+            }
+        }
+    },
     init: function() {
+        this.initThemeWatcher();
         this.expandPanelDialog();
         this.reloadList();
     },
@@ -180,6 +337,7 @@ var cameraManager = {
                         'max-height': '600px',
                         'overflow': 'hidden'
                     });
+                    cameraManager.syncTheme();
                 }
             } catch (e) {}
         }, 100);
@@ -239,6 +397,7 @@ var cameraManager = {
             }
             actBtn += '<a class="btlink" onclick="cameraManager.control(\'' + item.id + '\', \'restart\')">🔄 Restart</a>';
             actBtn += '<a class="btlink" onclick="cameraManager.openModal(true, \'' + item.id + '\')">✏ Sửa</a>';
+            actBtn += '<a class="btlink" onclick="cameraManager.openLogs(\'' + item.id + '\')">📜 Log</a>';
             actBtn += '<a class="btlink" style="color: #ff4d4f;" onclick="cameraManager.deleteCam(\'' + item.id + '\')">🗑 Xóa</a>';
             actBtn += '</div>';
 
@@ -359,7 +518,10 @@ var cameraManager = {
             area: ['640px', 'auto'],
             closeBtn: 2,
             shadeClose: false,
-            content: html
+            content: html,
+            success: function(layero) {
+                if (cameraManager.isDarkTheme()) layero.addClass('cam-dark-layer');
+            }
         });
     },
 
@@ -453,7 +615,10 @@ var cameraManager = {
             area: ['540px', 'auto'],
             closeBtn: 2,
             shadeClose: false,
-            content: html
+            content: html,
+            success: function(layero) {
+                if (cameraManager.isDarkTheme()) layero.addClass('cam-dark-layer');
+            }
         });
     },
 
@@ -506,7 +671,7 @@ var cameraManager = {
         $.post('/plugin?action=a&name=camera_manager&s=check_update', {}, function(res) {
             layer.close(loadT);
             var data = (typeof res === 'string') ? JSON.parse(res) : res;
-            layer.alert(data.msg || 'Bạn đang sử dụng phiên bản mới nhất (v1.0.4)', { title: 'Thông tin phiên bản', icon: 1 });
+            layer.alert(data.msg || 'Bạn đang sử dụng phiên bản mới nhất (v1.0.5)', { title: 'Thông tin phiên bản', icon: 1 });
         });
     }
 };

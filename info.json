@@ -5,7 +5,7 @@
   "name": "camera_manager",
   "type": "plugin",
   "ps": "Quản lý luồng RTSP camera, rolling buffer và lưu trữ video gửi Telegram",
-  "versions": "1.0.4",
+  "versions": "1.0.5",
   "shell": "install.sh",
   "checks": "/www/server/panel/plugin/camera_manager",
   "author": "NamNT",

@@ -17,6 +17,7 @@ zip -r "$DIST_DIR/$ZIP_NAME" \
     install.sh \
     upgrade.sh \
     icon.png \
+    ui/ \
     core/ \
     -x "*.git*" "*__pycache__*" "*.DS_Store*"
 

@@ -1,0 +1,220 @@
+<style>
+.cm-logs { padding: 14px; color: #333; display: flex; flex-direction: column; height: 100%; min-height: 0; box-sizing: border-box; }
+.cm-logs-tabs, .cm-logs-filters, .cm-logs-tools { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin-bottom: 10px; }
+.cm-logs-tabs button {
+    background: #f0f2f5;
+    color: #4b5563;
+    border: 1px solid #d1d5db;
+    border-radius: 4px;
+    font-size: 12px;
+    font-weight: 500;
+    transition: all 0.2s ease;
+}
+.cm-logs-tabs button:hover {
+    background: #e5e7eb;
+    color: #1f2937;
+    border-color: #9ca3af;
+}
+.cm-logs-tabs .is-active,
+.cm-logs-tabs .is-active:hover {
+    background: #20a53a !important;
+    color: #ffffff !important;
+    border-color: #20a53a !important;
+    font-weight: 600 !important;
+    box-shadow: 0 1px 3px rgba(32, 165, 58, 0.4) !important;
+}
+
+.cam-dark-layer .cm-logs-tabs button {
+    background: #26272b !important;
+    color: #a1a1aa !important;
+    border: 1px solid #434343 !important;
+}
+.cam-dark-layer .cm-logs-tabs button:hover {
+    background: #323339 !important;
+    color: #ffffff !important;
+    border-color: #555555 !important;
+}
+.cam-dark-layer .cm-logs-tabs .is-active,
+.cam-dark-layer .cm-logs-tabs .is-active:hover {
+    background: #20a53a !important;
+    color: #ffffff !important;
+    border-color: #20a53a !important;
+    font-weight: 600 !important;
+    box-shadow: 0 1px 4px rgba(32, 165, 58, 0.5) !important;
+}
+.cm-logs-filters label { display: flex; flex-direction: column; gap: 4px; margin: 0; font-weight: normal; font-size: 12px; }
+.cm-logs-filters select, .cm-logs-filters input { height: 30px; max-width: 170px; padding: 3px 6px; border: 1px solid #ddd; border-radius: 3px; background: #fff; color: #333; }
+.cm-logs-note { font-size: 12px; color: #666; margin-bottom: 10px; line-height: 1.6; }
+.cm-logs-scroll { flex: 1; min-height: 90px; overflow: auto; border: 1px solid #ddd; }
+.cm-logs-table { width: 100%; min-width: 660px; border-collapse: collapse; font-size: 12px; }
+.cm-logs-table th { position: sticky; top: 0; background: #f5f5f5; z-index: 1; }
+.cm-logs-table th, .cm-logs-table td { text-align: left; padding: 8px; border-bottom: 1px solid #eee; vertical-align: top; }
+.cm-logs-table td { white-space: pre-wrap; overflow-wrap: anywhere; }
+.cm-logs-details { margin-top: 4px; color: #666; font-size: 11px; }
+.cm-logs-error { color: #d93025; font-weight: bold; }
+.cm-logs-warning { color: #b26a00; font-weight: bold; }
+.cm-logs-info { color: #16833b; }
+.cm-logs-status { font-size: 12px; margin-top: 8px; }
+.cam-dark-layer .cm-logs { color: #ddd; }
+.cam-dark-layer .cm-logs-note, .cam-dark-layer .cm-logs-details { color: #aaa; }
+.cam-dark-layer .cm-logs-table th { background: #232428; color: #c7c7c7; border-bottom-color: #383838; }
+.cam-dark-layer .cm-logs-filters select, .cam-dark-layer .cm-logs-filters input { background: #26272b; color: #ddd; border-color: #434343; }
+.cam-dark-layer .cm-logs-scroll, .cam-dark-layer .cm-logs-table td { border-color: #383838; }
+.cam-dark-layer .cm-logs-table tr:hover td { background-color: #242529; }
+.dark .cm-logs { color: #ddd; }
+.dark .cm-logs-note, .dark .cm-logs-details { color: #aaa; }
+.dark .cm-logs-table th { background: #232428; color: #c7c7c7; border-bottom-color: #383838; }
+.dark .cm-logs-filters select, .dark .cm-logs-filters input { background: #26272b; color: #ddd; border-color: #434343; }
+.dark .cm-logs-scroll, .dark .cm-logs-table td { border-color: #383838; }
+.dark .cm-logs-table tr:hover td { background-color: #242529; }
+@media (max-height: 600px) { .cm-logs-note { display: none; } .cm-logs { overflow-y: auto; } }
+</style>
+<script>
+window.cameraManagerLogs = {
+    version: '1.0.5',
+    open: function(cameras, cameraId) {
+        var state = { entries: [], timer: null, request: null, sequence: 0, closed: false };
+        var categories = { all: 'Tất cả', stream: 'Stream / Camera', telegram: 'Telegram', storage: 'Dọn lưu trữ', plugin: 'Hoạt động plugin' };
+        var reasons = { telegram_success: 'Đã gửi Telegram thành công', empty_file: 'File rỗng', no_telegram_config_10m: 'Chưa cấu hình Telegram, quá 10 phút', upload_oversize: 'Vượt ngưỡng upload 48 MiB', legacy_ts: 'File TS cũ', buffer_retention_30m: 'Buffer quá 30 phút', output_retention_60m: 'Output quá 60 phút', work_retention_60m: 'Work quá 60 phút', manual_legacy_cleanup: 'Dọn thư mục cũ thủ công', manual_trash_cleanup: 'Dọn rác thủ công', manual_buffer_cleanup: 'Xóa buffer thủ công' };
+        var detailNames = { file: 'File', bytes: 'Dung lượng', reason: 'Lý do', telegram_sent: 'Đã gửi Telegram', duration_seconds: 'Thời lượng (giây)', configured_seconds: 'Cấu hình (giây)', elapsed_seconds: 'Thời gian gửi (giây)', repeated: 'Số lần lặp thêm', error: 'Lỗi', error_code: 'Mã lỗi', retry_after: 'Thử lại sau (giây)', message_id: 'Message ID', changed_fields: 'Các trường thay đổi', restarted: 'Đã yêu cầu restart', action: 'Thao tác', result: 'Kết quả', deleted_count: 'Số file xóa', freed_bytes: 'Dung lượng giải phóng', mode: 'Chế độ' };
+        var root = $('<div class="cm-logs"></div>');
+        var tabs = $('<div class="cm-logs-tabs"></div>').appendTo(root);
+        Object.keys(categories).forEach(function(key) {
+            $('<button type="button" class="btn btn-default btn-sm"></button>').text(categories[key]).attr('data-category', key).appendTo(tabs);
+        });
+        var filters = $('<div class="cm-logs-filters"></div>').appendTo(root);
+        function field(title, element) {
+            $('<label></label>').text(title).append(element).appendTo(filters);
+            return element;
+        }
+        var camera = field('Camera', $('<select aria-label="Camera"></select>'));
+        $('<option value="all">Tất cả camera</option>').appendTo(camera);
+        cameras.forEach(function(item) { $('<option></option>').val(item.id).text(item.id).appendTo(camera); });
+        if (cameraId && !cameras.some(function(item) { return item.id === cameraId; })) {
+            $('<option></option>').val(cameraId).text(cameraId).appendTo(camera);
+        }
+        camera.val(cameraId || 'all');
+        var level = field('Mức độ', $('<select aria-label="Mức độ"><option value="all">Tất cả mức độ</option><option value="info">Info</option><option value="warning">Warning</option><option value="error">Error</option></select>'));
+        var since = field('Từ (giờ trình duyệt)', $('<input type="datetime-local" aria-label="Từ thời gian">'));
+        var until = field('Đến', $('<input type="datetime-local" aria-label="Đến thời gian">'));
+        var limit = field('Số dòng', $('<select aria-label="Số dòng"><option>200</option><option>500</option><option>1000</option></select>'));
+        var tools = $('<div class="cm-logs-tools"></div>').appendTo(root);
+        var refresh = $('<button type="button" class="btn btn-default btn-sm">Làm mới</button>').appendTo(tools);
+        var auto = $('<input type="checkbox">');
+        $('<label style="font-weight:normal;margin:0 8px 0 0;"></label>').append(auto).append(' Tự cập nhật 5 giây').appendTo(tools);
+        var copy = $('<button type="button" class="btn btn-default btn-sm">Sao chép</button>').appendTo(tools);
+        var download = $('<button type="button" class="btn btn-default btn-sm">Tải log đang xem</button>').appendTo(tools);
+        var note = $('<div class="cm-logs-note"></div>').text('Log chung tối đa 20 MiB: 4 file × 5 MiB, tự xóa bản cũ nhất. Cảnh báo FFmpeg lặp được gom mỗi 30 giây. Chỉ có log từ khi nâng cấp; mật khẩu/token được che. Sao chép/tải xuống chỉ lấy các dòng đang hiển thị.').appendTo(root);
+        var scroll = $('<div class="cm-logs-scroll"></div>').appendTo(root);
+        var table = $('<table class="cm-logs-table"><thead><tr><th style="width:145px;">Thời gian</th><th style="width:100px;">Camera / Nhóm</th><th style="width:65px;">Mức độ</th><th>Nội dung</th></tr></thead></table>').appendTo(scroll);
+        var body = $('<tbody></tbody>').appendTo(table);
+        var status = $('<div class="cm-logs-status" role="status"></div>').appendTo(root);
+        var category = cameraId ? 'stream' : 'all';
+        function selectTab() { tabs.find('button').removeClass('is-active').filter('[data-category="' + category + '"]').addClass('is-active'); }
+        function formatDetail(key, value) {
+            if (key === 'reason') return reasons[value] || value;
+            if (key === 'bytes' || key === 'freed_bytes') return (Number(value) / 1048576).toFixed(2) + ' MiB';
+            if (value === null) return 'Không rõ / chưa xác minh';
+            if (typeof value === 'boolean') return value ? 'Có' : 'Không';
+            if (Array.isArray(value)) return value.join(', ');
+            return typeof value === 'object' ? JSON.stringify(value) : String(value);
+        }
+        function details(entry) {
+            return Object.keys(entry.details || {}).map(function(key) {
+                return (detailNames[key] || key) + ': ' + formatDetail(key, entry.details[key]);
+            }).join(' · ');
+        }
+        function text() {
+            return state.entries.map(function(entry) {
+                return [new Date(entry.timestamp * 1000).toLocaleString('vi-VN'), entry.camera || 'Plugin', categories[entry.category], entry.level.toUpperCase(), entry.message, details(entry)].join('\t');
+            }).join('\n');
+        }
+        function render(data) {
+            state.entries = data.entries || [];
+            var previousScroll = scroll.scrollTop();
+            body.empty();
+            if (!state.entries.length) $('<tr><td colspan="4">Chưa có log phù hợp. Thử đổi bộ lọc hoặc chờ sự kiện mới.</td></tr>').appendTo(body);
+            state.entries.forEach(function(entry) {
+                var row = $('<tr></tr>').appendTo(body);
+                $('<td></td>').text(new Date(entry.timestamp * 1000).toLocaleString('vi-VN')).appendTo(row);
+                $('<td></td>').text((entry.camera || 'Plugin') + '\n' + categories[entry.category]).appendTo(row);
+                $('<td></td>').addClass('cm-logs-' + entry.level).text(entry.level.toUpperCase()).appendTo(row);
+                var message = $('<td></td>').text(entry.message).appendTo(row);
+                $('<div class="cm-logs-details"></div>').text(details(entry)).appendTo(message);
+            });
+            scroll.scrollTop(previousScroll);
+            var storage = data.storage || {};
+            status.text('Hiển thị ' + state.entries.length + ' dòng mới nhất' + (data.truncated ? ' (còn log khác, hãy thu hẹp bộ lọc)' : '') + ' · Log: ' + ((storage.used_bytes || 0) / 1048576).toFixed(2) + ' / 20 MiB · ' + (storage.path || '') + ' · Cập nhật ' + new Date().toLocaleTimeString('vi-VN'));
+        }
+        function reload() {
+            if (state.closed) return;
+            if (!$.contains(document, root[0])) { stop(); return; }
+            var sinceValue = since.val() ? new Date(since.val()).getTime() / 1000 : 0;
+            var untilValue = until.val() ? new Date(until.val()).getTime() / 1000 + 59.999 : 0;
+            if (!isFinite(sinceValue) || !isFinite(untilValue) || (untilValue && sinceValue > untilValue)) {
+                status.text('Khoảng thời gian không hợp lệ.'); return;
+            }
+            var sequence = ++state.sequence;
+            if (state.request) state.request.abort();
+            status.text('Đang tải nhật ký...');
+            state.request = $.ajax({ url: '/plugin?action=a&name=camera_manager&s=get_logs', type: 'POST', timeout: 15000,
+                data: { camera: camera.val(), category: category, level: level.val(), since: sinceValue, until: untilValue, limit: limit.val() }
+            }).done(function(response) {
+                if (state.closed || sequence !== state.sequence) return;
+                try {
+                    var data = typeof response === 'string' ? JSON.parse(response) : response;
+                    if (!data.status) { status.text(data.msg || 'Không đọc được log.'); return; }
+                    render(data);
+                } catch (error) { status.text('Phản hồi nhật ký không hợp lệ.'); }
+            }).fail(function(request, reason) {
+                if (!state.closed && sequence === state.sequence && reason !== 'abort') status.text('Không tải được log; kiểm tra kết nối rồi làm mới.');
+            });
+        }
+        function stop() {
+            state.closed = true;
+            clearInterval(state.timer);
+            if (state.request) state.request.abort();
+            $(window).off('resize.cmLogs' + modal);
+            root.remove();
+        }
+        function resize() {
+            var width = Math.max(280, Math.min(1050, $(window).width() - 24));
+            var height = Math.max(200, Math.min(720, $(window).height() - 32));
+            layer.style(modal, { width: width + 'px', height: height + 'px', left: Math.max(0, ($(window).width() - width) / 2) + 'px', top: '16px' });
+            root.closest('.layui-layer-content').css({ height: Math.max(120, height - 43) + 'px', overflow: 'hidden' });
+        }
+        root.hide().appendTo('body');
+        var modal = layer.open({ type: 1, title: 'Nhật ký Camera Manager', area: ['95vw', '85vh'], shadeClose: false,
+            content: root, success: function(layero) {
+                if (window.cameraManager && window.cameraManager.isDarkTheme && window.cameraManager.isDarkTheme()) {
+                    layero.addClass('cam-dark-layer');
+                }
+                setTimeout(function() { resize(); reload(); }, 0);
+            }, end: stop });
+        $(window).on('resize.cmLogs' + modal, resize);
+        selectTab();
+        tabs.on('click', 'button', function() { category = $(this).attr('data-category'); selectTab(); reload(); });
+        filters.on('change', 'input, select', reload);
+        refresh.on('click', reload);
+        auto.on('change', function() { clearInterval(state.timer); if (auto.prop('checked')) { state.timer = setInterval(reload, 5000); reload(); } });
+        copy.on('click', function() {
+            var content = text();
+            if (!content) { layer.msg('Chưa có log để sao chép'); return; }
+            if (navigator.clipboard && window.isSecureContext) {
+                navigator.clipboard.writeText(content).then(function() { layer.msg('Đã sao chép log đã che thông tin nhạy cảm'); }, function() { layer.msg('Không sao chép được; hãy tải log'); });
+            } else {
+                var temporary = $('<textarea style="position:fixed;left:-9999px;"></textarea>').val(content).appendTo(root);
+                temporary[0].select();
+                var copied = document.execCommand('copy'); temporary.remove();
+                layer.msg(copied ? 'Đã sao chép log' : 'Không sao chép được; hãy tải log');
+            }
+        });
+        download.on('click', function() {
+            if (!state.entries.length) { layer.msg('Chưa có log để tải'); return; }
+            var url = URL.createObjectURL(new Blob([text()], { type: 'text/plain;charset=utf-8' }));
+            var link = $('<a></a>').attr({ href: url, download: 'camera-manager-log-' + new Date().toISOString().replace(/[:.]/g, '-') + '.txt' }).appendTo(root);
+            link[0].click(); link.remove(); setTimeout(function() { URL.revokeObjectURL(url); }, 1000);
+        });
+    }
+};
+</script>

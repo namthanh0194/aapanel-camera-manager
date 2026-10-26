@@ -7,6 +7,30 @@ PLUGIN_DIR="/www/server/panel/plugin/camera_manager"
 CAMERA_DIR="/opt/camera"
 CAMERA_ROOT="/tmp/video/cameras"
 
+Deploy_Camera_Core() {
+    local stage name
+    install -d -m 750 -o root -g www "$CAMERA_DIR/tmp"
+    stage=$(mktemp -d "$CAMERA_DIR/tmp/update.XXXXXX")
+    for name in camera-buffer-run.sh camera-cleanup.sh cleanup-and-archive.py; do
+        install -m 750 -o root -g www "$PLUGIN_DIR/core/$name" "$stage/$name"
+    done
+    install -m 640 -o root -g www "$PLUGIN_DIR/core/camera_manager_log.py" "$stage/camera_manager_log.py"
+    for name in camera_manager_log.py camera-buffer-run.sh camera-cleanup.sh cleanup-and-archive.py; do
+        mv -- "$stage/$name" "$CAMERA_DIR/$name"
+    done
+    rmdir "$stage"
+    rmdir "$CAMERA_DIR/tmp" 2>/dev/null || true
+}
+
+Setup_Camera_Logging() {
+    install -d -m 2770 -o root -g www /var/log/camera_manager
+    Deploy_Camera_Core
+}
+
+Log_Plugin_Action() {
+    PYTHONPATH="$CAMERA_DIR" python3 -B -c 'import json, sys; from camera_manager_log import write_event; version = json.load(open(sys.argv[2]))["versions"]; write_event("plugin", "info", "", sys.argv[1], "Cài đặt/cập nhật Camera Manager", version=version)' "$1" "$PLUGIN_DIR/info.json"
+}
+
 Install_Camera_Manager() {
     echo "===================================================="
     echo "Dang cai dat Camera Manager Plugin cho aaPanel..."
@@ -23,13 +47,8 @@ Install_Camera_Manager() {
     chmod -R 750 "$CAMERA_DIR"
     chown -R www:www "$CAMERA_ROOT"
     chmod -R 775 "$CAMERA_ROOT"
-
-    if [ -d "$PLUGIN_DIR/core" ]; then
-        cp "$PLUGIN_DIR/core/camera-buffer-run.sh" "$CAMERA_DIR/"
-        cp "$PLUGIN_DIR/core/camera-cleanup.sh" "$CAMERA_DIR/"
-        cp "$PLUGIN_DIR/core/cleanup-and-archive.py" "$CAMERA_DIR/"
-        chmod +x "$CAMERA_DIR"/*.sh "$CAMERA_DIR"/*.py 2>/dev/null || true
-    fi
+    Setup_Camera_Logging
+    Log_Plugin_Action install_started
 
     if [ ! -f /etc/systemd/system/camera-buffer@.service ]; then
         cat << 'SVC' > /etc/systemd/system/camera-buffer@.service
@@ -81,17 +100,15 @@ CSVC
         systemctl enable --now camera-cleanup.timer
     fi
 
+    Log_Plugin_Action install_completed
     echo "Cai dat Camera Manager Plugin thanh cong!"
 }
 
 Update_Camera_Manager() {
     echo "Dang cap nhat Camera Manager Plugin..."
-    if [ -d "$PLUGIN_DIR/core" ]; then
-        cp "$PLUGIN_DIR/core/camera-buffer-run.sh" "$CAMERA_DIR/"
-        cp "$PLUGIN_DIR/core/camera-cleanup.sh" "$CAMERA_DIR/"
-        cp "$PLUGIN_DIR/core/cleanup-and-archive.py" "$CAMERA_DIR/"
-        chmod +x "$CAMERA_DIR"/*.sh "$CAMERA_DIR"/*.py 2>/dev/null || true
-    fi
+    Setup_Camera_Logging
+    Log_Plugin_Action update_started
+    Log_Plugin_Action update_completed
     echo "Cap nhat hoan tat!"
 }
 

@@ -23,7 +23,7 @@ mkdir -p "$CAMERA_BUFFER_DIR"
 
 audio_args=(-c:a copy)
 if [[ "${CAMERA_AUDIO_MODE:-aac}" == "aac" ]]; then
-  audio_args=(-c:a aac -b:a "${CAMERA_AUDIO_BITRATE:-64k}" -ar "${CAMERA_AUDIO_RATE:-44100}")
+  audio_args=(-c:a aac -b:a "${CAMERA_AUDIO_BITRATE:-64k}" -ar "${CAMERA_AUDIO_RATE:-44100}" -af "aresample=async=1000")
 fi
 
 exec ffmpeg \
@@ -42,4 +42,5 @@ exec ffmpeg \
   -segment_time "$SEGMENT_TIME" \
   -reset_timestamps 1 \
   -strftime 1 \
-  "$CAMERA_BUFFER_DIR/%Y%m%d_%H%M%S.mp4"
+  "$CAMERA_BUFFER_DIR/%Y%m%d_%H%M%S.mp4" \
+  2> >(python3 -B "$(dirname "${BASH_SOURCE[0]}")/camera_manager_log.py" stream "$CAMERA_ID")
