@@ -9,7 +9,7 @@
   "shell": "install.sh",
   "checks": "/www/server/panel/plugin/camera_manager",
   "author": "NamNT",
-  "home": "https://github.com",
+  "home": "https://github.com/namthanh0194/aapanel-camera-manager",
   "date": "2026-10-26",
   "default": false,
   "display": 1
