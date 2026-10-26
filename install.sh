@@ -20,6 +20,12 @@ Deploy_Camera_Core() {
     done
     rmdir "$stage"
     rmdir "$CAMERA_DIR/tmp" 2>/dev/null || true
+
+    # Đảm bảo icon của plugin luôn được đồng bộ sang thư mục static icon của aaPanel
+    local static_ico="/www/server/panel/BTPanel/static/img/soft_ico/ico-camera_manager.png"
+    if [ -f "$PLUGIN_DIR/icon.png" ]; then
+        install -m 644 -o root -g www "$PLUGIN_DIR/icon.png" "$static_ico"
+    fi
 }
 
 Setup_Camera_Logging() {

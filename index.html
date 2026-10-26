@@ -156,14 +156,22 @@
 }
 .cam-dark-layer .table {
     color: #c7c7c7 !important;
+    background-color: transparent !important;
 }
-.cam-dark-layer .table > thead > tr > th {
+.cam-dark-layer .table > thead > tr > th,
+.cam-dark-layer .divtable .table thead th {
+    background-color: #202020 !important;
+    color: #d8dce2 !important;
     border-bottom: 1px solid #383838 !important;
-    color: #aaa !important;
+    border-top: none !important;
 }
 .cam-dark-layer .table > tbody > tr > td {
+    background-color: #18191c !important;
+    color: #c7c7c7 !important;
     border-top: 1px solid #2d2d2d !important;
+    border-bottom: none !important;
 }
+.cam-dark-layer .table-hover > tbody > tr:hover > td,
 .cam-dark-layer .table-hover > tbody > tr:hover {
     background-color: #242529 !important;
 }
