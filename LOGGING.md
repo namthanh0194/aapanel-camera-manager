@@ -1,4 +1,4 @@
-# Nhật ký Camera Manager (v1.0.8)
+# Nhật ký Camera Manager (v1.0.9)
 
 - Mở **Nhật ký** trên thanh công cụ hoặc **Log** tại từng camera.
 - Bốn nhóm: Stream / Camera, Telegram, Dọn lưu trữ, Hoạt động plugin. Lọc camera, mức độ, từ/đến theo giờ trình duyệt; mặc định 200 dòng mới nhất, tối đa 1000 dòng.
