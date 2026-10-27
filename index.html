@@ -676,11 +676,40 @@ var cameraManager = {
     },
 
     checkUpdate: function() {
-        var loadT = layer.msg('Đang kiểm tra cập nhật...', { icon: 16, time: 0, shade: 0.1 });
+        var loadT = layer.msg('Đang kiểm tra cập nhật từ GitHub...', { icon: 16, time: 0, shade: 0.1 });
         $.post('/plugin?action=a&name=camera_manager&s=check_update', {}, function(res) {
             layer.close(loadT);
             var data = (typeof res === 'string') ? JSON.parse(res) : res;
-            layer.alert(data.msg || 'Bạn đang sử dụng phiên bản mới nhất (v1.0.8)', { title: 'Thông tin phiên bản', icon: 1 });
+            if (data.has_update) {
+                layer.confirm(
+                    '<div style="line-height:22px;"><b>' + (data.msg || 'Đã có phiên bản mới!') + '</b><br><br>' +
+                    'Phiên bản hiện tại: <span class="label label-default">v' + data.current_version + '</span><br>' +
+                    'Phiên bản mới nhất: <span class="label label-success">v' + data.latest_version + '</span><br><br>' +
+                    '<small style="color:#888;">* Toàn bộ cấu hình camera sẽ được giữ nguyên an toàn 100%.</small></div>',
+                    {
+                        title: 'Thông báo bản cập nhật mới',
+                        btn: ['Cập nhật ngay', 'Để sau'],
+                        icon: 6
+                    },
+                    function(index) {
+                        layer.close(index);
+                        var upLoadT = layer.msg('Đang tải và cập nhật phiên bản mới, vui lòng chờ trong giây lát...', { icon: 16, time: 0, shade: 0.3 });
+                        $.post('/plugin?action=a&name=camera_manager&s=apply_update', {}, function(upRes) {
+                            layer.close(upLoadT);
+                            var upData = (typeof upRes === 'string') ? JSON.parse(upRes) : upRes;
+                            if (upData.status) {
+                                layer.msg(upData.msg || 'Cập nhật thành công!', { icon: 1, time: 2000 }, function() {
+                                    window.location.reload();
+                                });
+                            } else {
+                                layer.alert(upData.msg || 'Cập nhật thất bại!', { icon: 2, title: 'Lỗi cập nhật' });
+                            }
+                        });
+                    }
+                );
+            } else {
+                layer.alert(data.msg || ('Bạn đang sử dụng phiên bản mới nhất v' + data.current_version), { title: 'Thông tin phiên bản', icon: 1 });
+            }
         });
     }
 };

@@ -378,19 +378,108 @@ class camera_manager_main:
             "msg": f"Đã dọn dẹp {deleted_count} file, giải phóng {freed_mb} MB dung lượng!"
         }, ensure_ascii=False)
 
-    # 9. API: Kiểm tra phiên bản
+    # 9. API: Kiểm tra phiên bản và cập nhật từ GitHub
+    @staticmethod
+    def _parse_version(v_str):
+        clean = re.sub(r'[^0-9.]', '', str(v_str)).strip('.')
+        parts = []
+        for p in clean.split('.'):
+            try:
+                parts.append(int(p))
+            except ValueError:
+                parts.append(0)
+        return tuple(parts)
+
     def check_update(self, get):
         plugin_info_path = "/www/server/panel/plugin/camera_manager/info.json"
-        current_version = "1.0.3"
+        current_version = "1.0.0"
         if os.path.exists(plugin_info_path):
             try:
-                current_version = json.loads(public.ReadFile(plugin_info_path)).get("versions", "1.0.3")
+                current_version = json.loads(public.ReadFile(plugin_info_path)).get("versions", "1.0.0")
             except Exception:
                 pass
 
+        latest_version = current_version
+        has_update = False
+        update_url = "https://raw.githubusercontent.com/namthanh0194/aapanel-camera-manager/main/info.json"
+        try:
+            import urllib.request
+            req = urllib.request.Request(
+                update_url,
+                headers={
+                    "User-Agent": "aaPanel-Camera-Manager",
+                    "Cache-Control": "no-cache",
+                    "Pragma": "no-cache"
+                }
+            )
+            with urllib.request.urlopen(req, timeout=8) as resp:
+                remote_info = json.loads(resp.read().decode('utf-8'))
+                latest_version = remote_info.get("versions", current_version)
+                if self._parse_version(latest_version) > self._parse_version(current_version):
+                    has_update = True
+        except Exception as error:
+            return json.dumps({
+                "status": False,
+                "current_version": current_version,
+                "has_update": False,
+                "latest_version": current_version,
+                "msg": f"Không thể kết nối máy chủ cập nhật GitHub: {error}"
+            }, ensure_ascii=False)
+
+        if has_update:
+            msg = f"Đã có phiên bản mới v{latest_version} (phiên bản hiện tại: v{current_version})!"
+        else:
+            msg = f"Bạn đang sử dụng phiên bản mới nhất v{current_version}"
+
         return json.dumps({
+            "status": True,
             "current_version": current_version,
-            "has_update": False,
-            "latest_version": current_version,
-            "msg": f"Đang sử dụng phiên bản mới nhất v{current_version}"
+            "has_update": has_update,
+            "latest_version": latest_version,
+            "msg": msg
         }, ensure_ascii=False)
+
+    def apply_update(self, get):
+        import urllib.request
+        import zipfile
+        import io
+        import shutil
+        import tempfile
+
+        plugin_dir = "/www/server/panel/plugin/camera_manager"
+        archive_url = "https://github.com/namthanh0194/aapanel-camera-manager/archive/refs/heads/main.zip"
+
+        write_event("plugin", "info", "", "update_download_started", "Bắt đầu tải bản cập nhật từ GitHub...")
+        try:
+            req = urllib.request.Request(archive_url, headers={"User-Agent": "aaPanel-Camera-Manager"})
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                archive_bytes = resp.read()
+
+            with tempfile.TemporaryDirectory(prefix="cam_up_") as temp_dir:
+                with zipfile.ZipFile(io.BytesIO(archive_bytes)) as zip_file:
+                    zip_file.extractall(temp_dir)
+
+                extracted_roots = [
+                    os.path.join(temp_dir, d) for d in os.listdir(temp_dir)
+                    if os.path.isdir(os.path.join(temp_dir, d))
+                ]
+                if not extracted_roots:
+                    raise ValueError("Gói cập nhật giải nén không hợp lệ")
+
+                source_dir = extracted_roots[0]
+                for item in os.listdir(source_dir):
+                    if item in [".git", "dist", "tmp", ".gitignore"]:
+                        continue
+                    src_item = os.path.join(source_dir, item)
+                    dst_item = os.path.join(plugin_dir, item)
+                    if os.path.isdir(src_item):
+                        shutil.copytree(src_item, dst_item, dirs_exist_ok=True)
+                    else:
+                        shutil.copy2(src_item, dst_item)
+
+            public.ExecShell(f"bash '{plugin_dir}/install.sh' update")
+            write_event("plugin", "info", "", "update_success", "Cập nhật plugin thành công qua giao diện")
+            return json.dumps({"status": True, "msg": "Cập nhật plugin thành công!"}, ensure_ascii=False)
+        except Exception as error:
+            write_event("plugin", "error", "", "update_failed", f"Cập nhật thất bại: {error}")
+            return json.dumps({"status": False, "msg": f"Cập nhật plugin thất bại: {error}"}, ensure_ascii=False)
