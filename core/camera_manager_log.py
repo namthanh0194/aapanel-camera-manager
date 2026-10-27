@@ -141,13 +141,14 @@ def remove_logged(path, camera, reason, telegram_sent=None):
 
 def inspect_video(path, camera, expected):
     try:
-        response = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration",
+        response = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration:stream=codec_type",
                                    "-of", "json", path], capture_output=True, text=True, timeout=5)
         if response.returncode:
             raise ValueError(redact(response.stderr))
-        duration = round(float(json.loads(response.stdout)["format"]["duration"]), 2)
+        data = json.loads(response.stdout)
+        duration = round(float(data["format"]["duration"]), 2)
         expected = float(expected)
-        if not math.isfinite(duration) or duration < 0:
+        if not math.isfinite(duration) or duration <= 0 or not any(stream.get("codec_type") == "video" for stream in data.get("streams", [])):
             raise ValueError("Thời lượng không hợp lệ")
         short = expected > 0 and duration < expected * 0.8
         write_event("stream", "warning" if short else "info", camera, "video_ready",

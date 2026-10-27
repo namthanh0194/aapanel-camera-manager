@@ -14,8 +14,10 @@ Deploy_Camera_Core() {
     for name in camera-buffer-run.sh camera-cleanup.sh cleanup-and-archive.py; do
         install -m 750 -o root -g www "$PLUGIN_DIR/core/$name" "$stage/$name"
     done
-    install -m 640 -o root -g www "$PLUGIN_DIR/core/camera_manager_log.py" "$stage/camera_manager_log.py"
-    for name in camera_manager_log.py camera-buffer-run.sh camera-cleanup.sh cleanup-and-archive.py; do
+    for name in camera_manager_log.py camera_manager_storage.py camera_manager_delivery.py; do
+        install -m 640 -o root -g www "$PLUGIN_DIR/core/$name" "$stage/$name"
+    done
+    for name in camera_manager_log.py camera_manager_storage.py camera_manager_delivery.py camera-buffer-run.sh camera-cleanup.sh cleanup-and-archive.py; do
         mv -- "$stage/$name" "$CAMERA_DIR/$name"
     done
     rmdir "$stage"
@@ -35,6 +37,32 @@ Setup_Camera_Logging() {
 
 Log_Plugin_Action() {
     PYTHONPATH="$CAMERA_DIR" python3 -B -c 'import json, sys; from camera_manager_log import write_event; version = json.load(open(sys.argv[2]))["versions"]; write_event("plugin", "info", "", sys.argv[1], "Cài đặt/cập nhật Camera Manager", version=version)' "$1" "$PLUGIN_DIR/info.json"
+}
+
+Activate_Camera_Guards() {
+    local service rest pid attempt active
+    while read -r service rest; do
+        [[ "$service" =~ ^camera-buffer@[a-z0-9_]+\.service$ ]] || continue
+        pid=$(systemctl show "$service" -p MainPID --value)
+        if [[ "$pid" != "0" ]] && grep -zFqx "$CAMERA_DIR/camera_manager_storage.py" "/proc/$pid/cmdline" 2>/dev/null; then
+            continue
+        fi
+        echo "Nap bao ve dung luong: $service"
+        systemctl restart "$service"
+        active=0
+        for attempt in {1..15}; do
+            sleep 1
+            pid=$(systemctl show "$service" -p MainPID --value)
+            if [[ "$pid" != "0" ]] && grep -zFqx "$CAMERA_DIR/camera_manager_storage.py" "/proc/$pid/cmdline" 2>/dev/null; then
+                active=1
+                break
+            fi
+        done
+        if [[ "$active" != "1" ]]; then
+            echo "Khong xac minh duoc recorder guard: $service" >&2
+            return 1
+        fi
+    done < <(systemctl list-units 'camera-buffer@*.service' --type=service --state=running --plain --no-legend --no-pager)
 }
 
 Install_Camera_Manager() {
@@ -106,6 +134,7 @@ CSVC
         systemctl enable --now camera-cleanup.timer
     fi
 
+    Activate_Camera_Guards
     Log_Plugin_Action install_completed
     echo "Cai dat Camera Manager Plugin thanh cong!"
 }
@@ -114,6 +143,7 @@ Update_Camera_Manager() {
     echo "Dang cap nhat Camera Manager Plugin..."
     Setup_Camera_Logging
     Log_Plugin_Action update_started
+    Activate_Camera_Guards
     Log_Plugin_Action update_completed
     echo "Cap nhat hoan tat!"
 }

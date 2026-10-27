@@ -1,4 +1,4 @@
-# Nhật ký Camera Manager (v1.0.5)
+# Nhật ký Camera Manager (v1.0.6)
 
 - Mở **Nhật ký** trên thanh công cụ hoặc **Log** tại từng camera.
 - Bốn nhóm: Stream / Camera, Telegram, Dọn lưu trữ, Hoạt động plugin. Lọc camera, mức độ, từ/đến theo giờ trình duyệt; mặc định 200 dòng mới nhất, tối đa 1000 dòng.
@@ -15,13 +15,14 @@ FFmpeg stderr được đọc bởi helper và gom cảnh báo lặp trong từn
 
 Giới hạn này chỉ áp dụng log mới của plugin, **không giới hạn/xóa journal hệ thống đã tồn tại**. Không sửa cấu hình journald toàn VPS. Nâng cấp helper cần restart dịch vụ camera đang chạy một lần để chuyển stderr sang bộ gom log; aaPanel không cần restart.
 
-## Giữ nguyên chính sách video hiện tại
+## Chính sách video an toàn
 
 - Telegram trả `ok=true`: log gửi thành công, xóa file rồi log `telegram_success` với `telegram_sent=true`.
 - Gửi lỗi: giữ file cho lần quét tiếp theo; log lỗi curl/API, thời gian gửi và `retry_after` nếu Telegram trả về.
-- File vượt 48 MiB: hiện xóa mà chưa gửi, ghi `upload_oversize`, `telegram_sent=false`.
-- Chưa cấu hình Telegram: file hoàn tất quá 10 phút bị xóa, ghi `no_telegram_config_10m`, `telegram_sent=false`.
-- Dọn định kỳ: buffer MP4 quá 30 phút, output quá 60 phút, TS/work cũ được ghi lý do tương ứng. `telegram_sent=null` nghĩa là không có xác nhận đã gửi, không được hiểu là gửi thành công.
+- File vượt 48.000.000 byte: cứu hộ bằng các phần MP4 stream-copy, log `fallback_ready` / `fallback_failed`; không tạo TS. Giữ bản gốc đến khi mọi phần được xác nhận gửi. Xem `DELIVERY.md`.
+- `upload_retry_scheduled` ghi số lần lỗi và thời gian chờ; giữ biên nhận từng phần để tiếp tục sau restart. Không thể loại trừ gửi trùng khi phản hồi mạng bị mất trước khi nhận/lưu biên nhận.
+- Chưa cấu hình Telegram, probe lỗi hoặc file đang ghi: không tự xóa. Không xóa buffer/output/work chỉ theo tuổi nữa. Các lý do xóa cũ trong lịch sử không phản ánh chính sách mới.
+- Dưới 1 GiB trống, log `recording_paused_disk`: đóng MP4 và tạm ngưng ghi để giữ hàng đợi; đủ 1,25 GiB thì log `recording_resumed_disk` và ghi lại. `telegram_sent=null` không phải xác nhận gửi thành công.
 - Dọn thủ công ghi từng file và tổng dung lượng thu hồi. Cài đặt/cập nhật plugin ghi bắt đầu/hoàn tất; thay đổi cấu hình chỉ ghi tên trường, không ghi giá trị bí mật.
 
 Log bắt đầu được thu sau nâng cấp; không nhập lại lịch sử từ journald để tránh đưa bí mật cũ vào log mới.

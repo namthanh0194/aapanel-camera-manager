@@ -71,12 +71,12 @@
 </style>
 <script>
 window.cameraManagerLogs = {
-    version: '1.0.5',
+    version: '1.0.6',
     open: function(cameras, cameraId) {
         var state = { entries: [], timer: null, request: null, sequence: 0, closed: false };
         var categories = { all: 'Tất cả', stream: 'Stream / Camera', telegram: 'Telegram', storage: 'Dọn lưu trữ', plugin: 'Hoạt động plugin' };
         var reasons = { telegram_success: 'Đã gửi Telegram thành công', empty_file: 'File rỗng', no_telegram_config_10m: 'Chưa cấu hình Telegram, quá 10 phút', upload_oversize: 'Vượt ngưỡng upload 48 MiB', legacy_ts: 'File TS cũ', buffer_retention_30m: 'Buffer quá 30 phút', output_retention_60m: 'Output quá 60 phút', work_retention_60m: 'Work quá 60 phút', manual_legacy_cleanup: 'Dọn thư mục cũ thủ công', manual_trash_cleanup: 'Dọn rác thủ công', manual_buffer_cleanup: 'Xóa buffer thủ công' };
-        var detailNames = { file: 'File', bytes: 'Dung lượng', reason: 'Lý do', telegram_sent: 'Đã gửi Telegram', duration_seconds: 'Thời lượng (giây)', configured_seconds: 'Cấu hình (giây)', elapsed_seconds: 'Thời gian gửi (giây)', repeated: 'Số lần lặp thêm', error: 'Lỗi', error_code: 'Mã lỗi', retry_after: 'Thử lại sau (giây)', message_id: 'Message ID', changed_fields: 'Các trường thay đổi', restarted: 'Đã yêu cầu restart', action: 'Thao tác', result: 'Kết quả', deleted_count: 'Số file xóa', freed_bytes: 'Dung lượng giải phóng', mode: 'Chế độ' };
+        var detailNames = { file: 'File', bytes: 'Dung lượng', reason: 'Lý do', telegram_sent: 'Đã gửi Telegram', duration_seconds: 'Thời lượng (giây)', configured_seconds: 'Cấu hình (giây)', elapsed_seconds: 'Thời gian gửi (giây)', repeated: 'Số lần lặp thêm', error: 'Lỗi', error_code: 'Mã lỗi', retry_after: 'Thử lại sau (giây)', attempts: 'Lần lỗi', parts: 'Số phần MP4 cứu hộ', reserve_bytes: 'Dung lượng dự phòng (byte)', message_id: 'Message ID', changed_fields: 'Các trường thay đổi', restarted: 'Đã yêu cầu restart', action: 'Thao tác', result: 'Kết quả', deleted_count: 'Số file xóa', freed_bytes: 'Dung lượng giải phóng', mode: 'Chế độ' };
         var root = $('<div class="cm-logs"></div>');
         var tabs = $('<div class="cm-logs-tabs"></div>').appendTo(root);
         Object.keys(categories).forEach(function(key) {

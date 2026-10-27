@@ -26,8 +26,11 @@ if [[ "${CAMERA_AUDIO_MODE:-aac}" == "aac" ]]; then
   audio_args=(-c:a aac -b:a "${CAMERA_AUDIO_BITRATE:-64k}" -ar "${CAMERA_AUDIO_RATE:-44100}" -af "aresample=async=1000")
 fi
 
-exec ffmpeg \
+export CAMERA_BUFFER_DIR CAMERA_ID
+
+exec python3 -B "$(dirname "${BASH_SOURCE[0]}")/camera_manager_storage.py" record ffmpeg \
   -hide_banner \
+  -nostdin \
   -loglevel warning \
   -rtsp_transport tcp \
   -stimeout 10000000 \

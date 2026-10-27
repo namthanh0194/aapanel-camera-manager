@@ -16,6 +16,8 @@ import public
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "core"))
 from camera_manager_log import read_events, remove_logged, write_event
+from camera_manager_delivery import finish_delivery
+from camera_manager_storage import archive_lock, file_in_use, video_closed
 
 CONFIG_DIR = "/opt/camera"
 CAMERA_ROOT = "/tmp/video/cameras"
@@ -295,6 +297,12 @@ class camera_manager_main:
 
     # 8. API: Dọn dẹp rác / xóa bộ đệm lưu trữ
     def clean_storage(self, get):
+        with archive_lock(CAMERA_ROOT) as acquired:
+            if not acquired:
+                return json.dumps({"status": False, "msg": "Đang gửi/dọn video; vui lòng thử lại sau"}, ensure_ascii=False)
+            return self._clean_storage_locked(get)
+
+    def _clean_storage_locked(self, get):
         cam_id = getattr(get, "id", "all").strip()
         mode = getattr(get, "mode", "trash_only").strip() # trash_only hoặc all_buffer
         if (cam_id != "all" and not re.fullmatch(r"[a-z0-9_]+", cam_id)) or mode not in ("trash_only", "all_buffer"):
@@ -325,6 +333,8 @@ class camera_manager_main:
                         for root, dirs, files in os.walk(sub_p, topdown=False):
                             for f in files:
                                 fp = os.path.join(root, f)
+                                if file_in_use(fp):
+                                    continue
                                 freed_bytes += remove_logged(fp, cid, "manual_legacy_cleanup")
                                 deleted_count += 1
                             for d in dirs: os.rmdir(os.path.join(root, d))
@@ -341,7 +351,7 @@ class camera_manager_main:
                 if not os.path.isfile(fp): continue
                 try:
                     sz = os.path.getsize(fp)
-                    if f.endswith(".ts") or sz == 0:
+                    if (f.endswith(".ts") or sz == 0) and video_closed(fp):
                         freed_bytes += remove_logged(fp, cid, "manual_trash_cleanup")
                         deleted_count += 1
                 except OSError as error:
@@ -351,23 +361,15 @@ class camera_manager_main:
             # Xóa các file mp4 đã quay xong (giữ lại file mp4 mới nhất đang được ffmpeg mở ghi)
             if mode == "all_buffer":
                 mp4_files = sorted(glob.glob(os.path.join(buf_dir, "*.mp4")))
-                if len(mp4_files) > 1:
-                    # Bỏ qua file cuối cùng đang ghi
-                    for old_mp4 in mp4_files[:-1]:
-                        try:
-                            freed_bytes += remove_logged(old_mp4, cid, "manual_buffer_cleanup")
-                            deleted_count += 1
-                        except OSError as error:
-                            write_event("storage", "error", cid, "delete_failed", "Không xóa được video", file=old_mp4, error=str(error))
-                elif len(mp4_files) == 1:
-                    # Nếu service của camera này đã dừng (inactive) thì có thể xóa nốt file duy nhất
-                    svc_status = self._get_service_status(cid)
-                    if svc_status.get("status") != "active":
-                        try:
-                            freed_bytes += remove_logged(mp4_files[0], cid, "manual_buffer_cleanup")
-                            deleted_count += 1
-                        except OSError as error:
-                            write_event("storage", "error", cid, "delete_failed", "Không xóa được video", file=mp4_files[0], error=str(error))
+                for old_mp4 in mp4_files:
+                    try:
+                        if not video_closed(old_mp4):
+                            continue
+                        freed_bytes += remove_logged(old_mp4, cid, "manual_buffer_cleanup", False)
+                        deleted_count += 1
+                        finish_delivery(old_mp4, cid)
+                    except OSError as error:
+                        write_event("storage", "error", cid, "delete_failed", "Không xóa được video", file=old_mp4, error=str(error))
 
         freed_mb = round(freed_bytes / (1024 * 1024), 2)
         write_event("storage", "info", "" if cam_id == "all" else cam_id, "cleanup_completed", "Hoàn tất dọn lưu trữ thủ công", deleted_count=deleted_count, freed_bytes=freed_bytes, mode=mode)

@@ -12,6 +12,7 @@ cd "$SCRIPT_DIR"
 rm -f "$DIST_DIR/$ZIP_NAME"
 zip -r "$DIST_DIR/$ZIP_NAME" \
     info.json \
+    DELIVERY.md \
     camera_manager_main.py \
     index.html \
     install.sh \
