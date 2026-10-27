@@ -62,7 +62,7 @@ def finish_delivery(video_path, camera_id):
         return
     for part in glob.glob(os.path.join(directory, "part_*.mp4")):
         remove_logged(part, camera_id, "fallback_artifact_cleanup", None)
-    for name in ("state.json",):
+    for name in ("state.json", "probe.json"):
         path = os.path.join(directory, name)
         if os.path.isfile(path):
             os.unlink(path)

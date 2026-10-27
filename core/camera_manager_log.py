@@ -139,11 +139,13 @@ def remove_logged(path, camera, reason, telegram_sent=None):
     return size
 
 
-def inspect_video(path, camera, expected):
+def inspect_video(path, camera, expected, failure_details=None):
     try:
         response = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration:stream=codec_type",
                                    "-of", "json", path], capture_output=True, text=True, timeout=5)
         if response.returncode:
+            if failure_details is not None and "moov atom not found" in response.stderr.lower():
+                failure_details["reason"] = "missing_moov"
             raise ValueError(redact(response.stderr))
         data = json.loads(response.stdout)
         duration = round(float(data["format"]["duration"]), 2)

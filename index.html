@@ -204,7 +204,7 @@
             <button class="btn btn-default btn-sm" onclick="cameraManager.reloadList()">🔄 Làm Mới</button>
         </div>
         <div>
-            <span id="camPluginVersion" style="font-size: 12px; color: #888; margin-right: 8px;">v1.1.0</span>
+            <span id="camPluginVersion" style="font-size: 12px; color: #888; margin-right: 8px;">v1.1.1</span>
             <button id="camUpdateButton" class="btn btn-success btn-sm" style="display: none;" onclick="cameraManager.checkUpdate()">☁️ Cập nhật</button>
         </div>
     </div>
@@ -216,8 +216,9 @@
             <li><code>/opt/camera/</code> — cấu hình từng camera (<code>*.env</code>) và script ghi/gửi video.</li>
             <li><code>/var/log/camera_manager/</code> — nhật ký chung tối đa 20 MiB (4 file × 5 MiB), tự xoay vòng và xóa bản cũ; mật khẩu/token được che.</li>
             <li><code>/tmp/video/cameras/&lt;camera_id&gt;/buffer/</code> — các đoạn MP4 đang ghi hoặc chờ gửi Telegram; gửi thành công thì tự xóa.</li>
-            <li><code>buffer/.delivery/</code> — trạng thái thử lại/biên nhận gửi; chỉ tạo các phần MP4 cứu hộ khi bản gốc vượt 48 MB. Không tạo TS, không xóa video chờ gửi theo tuổi. Ổ đĩa còn dưới 1 GiB: tạm ngưng ghi, tiếp tục khi còn ít nhất 1,25 GiB.</li>
+            <li><code>buffer/.delivery/</code> — trạng thái thử lại/biên nhận gửi và <code>probe.json</code> đánh dấu MP4 thiếu moov đã xác nhận (giữ nguyên video, không quét lỗi lặp lại); chỉ tạo các phần MP4 cứu hộ khi bản gốc vượt 48 MB. Không tạo TS, không xóa video chờ gửi theo tuổi. Ổ đĩa còn dưới 1 GiB: tạm ngưng ghi, tiếp tục khi còn ít nhất 1,25 GiB.</li>
             <li><code>/etc/systemd/system/camera-buffer@.service</code> — mẫu dịch vụ ghi stream; <code>camera-cleanup.service</code> và <code>camera-cleanup.timer</code> — gửi/dọn buffer định kỳ.</li>
+            <li><code>/etc/systemd/system/camera-buffer@.service.d/camera-manager-stop.conf</code> — cấu hình dừng qua guard để FFmpeg có thời gian đóng MP4.</li>
             <li>Gỡ plugin khỏi aaPanel chỉ xóa mã plugin; cấu hình camera, video và dịch vụ hệ thống ở các đường dẫn trên được giữ lại.</li>
         </ul>
     </details>
@@ -246,7 +247,7 @@ var cameraManager = {
     cams: [],
 
     openLogs: function(cameraId) {
-        if (window.cameraManagerLogs && window.cameraManagerLogs.version === '1.1.0') {
+        if (window.cameraManagerLogs && window.cameraManagerLogs.version === '1.1.1') {
             window.cameraManagerLogs.open(this.cams, cameraId);
             return;
         }

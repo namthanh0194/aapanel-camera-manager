@@ -14,10 +14,10 @@ Deploy_Camera_Core() {
     for name in camera-buffer-run.sh camera-cleanup.sh cleanup-and-archive.py; do
         install -m 750 -o root -g www "$PLUGIN_DIR/core/$name" "$stage/$name"
     done
-    for name in camera_manager_log.py camera_manager_storage.py camera_manager_delivery.py; do
+    for name in camera_manager_log.py camera_manager_storage.py camera_manager_delivery.py camera_manager_probe.py; do
         install -m 640 -o root -g www "$PLUGIN_DIR/core/$name" "$stage/$name"
     done
-    for name in camera_manager_log.py camera_manager_storage.py camera_manager_delivery.py camera-buffer-run.sh camera-cleanup.sh cleanup-and-archive.py; do
+    for name in camera_manager_log.py camera_manager_storage.py camera_manager_delivery.py camera_manager_probe.py camera-buffer-run.sh camera-cleanup.sh cleanup-and-archive.py; do
         mv -- "$stage/$name" "$CAMERA_DIR/$name"
     done
     rmdir "$stage"
@@ -33,6 +33,24 @@ Deploy_Camera_Core() {
 Setup_Camera_Logging() {
     install -d -m 2770 -o root -g www /var/log/camera_manager
     Deploy_Camera_Core
+}
+
+Setup_Camera_Stop() {
+    local directory="/etc/systemd/system/camera-buffer@.service.d"
+    install -d -m 755 -o root -g root "$directory"
+    local stage
+    stage=$(mktemp "$directory/.stop.XXXXXX")
+    cat > "$stage" << 'STOP'
+[Service]
+KillMode=mixed
+KillSignal=SIGTERM
+TimeoutStopSec=45s
+SendSIGKILL=yes
+STOP
+    chown root:root "$stage"
+    chmod 644 "$stage"
+    mv -- "$stage" "$directory/camera-manager-stop.conf"
+    systemctl daemon-reload
 }
 
 Log_Plugin_Action() {
@@ -134,6 +152,7 @@ CSVC
         systemctl enable --now camera-cleanup.timer
     fi
 
+    Setup_Camera_Stop
     Activate_Camera_Guards
     Log_Plugin_Action install_completed
     echo "Cai dat Camera Manager Plugin thanh cong!"
@@ -143,6 +162,7 @@ Update_Camera_Manager() {
     echo "Dang cap nhat Camera Manager Plugin..."
     Setup_Camera_Logging
     Log_Plugin_Action update_started
+    Setup_Camera_Stop
     Activate_Camera_Guards
     Log_Plugin_Action update_completed
     echo "Cap nhat hoan tat!"

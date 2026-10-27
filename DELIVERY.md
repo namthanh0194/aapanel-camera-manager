@@ -1,4 +1,4 @@
-# Ghi MP4 và gửi Telegram an toàn — v1.1.0
+# Ghi MP4 và gửi Telegram an toàn — v1.1.1
 
 ## Đường đi bình thường
 
@@ -27,12 +27,16 @@ Giữ nguyên `-f segment -segment_time`, video stream-copy và AAC như trướ
 ## Bảo vệ ổ đĩa và giữ file chờ gửi
 
 - Bỏ xóa MP4 chỉ vì quá 30/60 phút và bỏ xóa video chưa cấu hình Telegram sau 10 phút. File lỗi ffprobe được giữ, không upload hoặc coi là rác tự động.
+- MP4 đã đóng, không thay đổi và thiếu `moov` qua hai lần probe cách nhau ít nhất 60 giây được đánh dấu trong `buffer/.delivery/<tên-file>/probe.json`. Từ đó bỏ qua probe/gửi file đó, không tiếp tục ghi cùng lỗi ở mỗi lượt quét; các MP4 khác vẫn được xử lý. Video gốc giữ nguyên vị trí và dung lượng, vẫn thấy trong quét lưu trữ, không được tự xóa.
+- Marker gắn với device/inode/dung lượng/mtime. Khi file được sửa hoặc thay thế, hệ thống tự kiểm tra lại; timeout, lỗi quyền hoặc lỗi probe khác không bị đánh dấu hỏng vĩnh viễn. Có thể chủ động cho kiểm tra lại bằng cách xóa đúng `probe.json` dưới khóa uploader, không cần xóa video. Dọn buffer thủ công hoặc gửi thành công sẽ dọn cả marker liên quan.
 - Không tự xóa `work/output` cũ theo tuổi. Dọn thủ công vẫn là thao tác có chủ đích, có cảnh báo và log; không dọn file đang mở hoặc lúc uploader giữ khóa.
 - Tiến trình giám sát recorder kiểm tra dung lượng mỗi 5 giây. Dưới **1 GiB trống**: yêu cầu FFmpeg đóng MP4 và tạm ngưng ghi; không xóa hàng đợi. Đủ **1,25 GiB trống**: tự ghi lại. Cứu hộ cần thêm dung lượng dự phòng trước khi tạo bản chia.
 - Đây là ngưỡng bảo vệ, không phải hạn ngạch riêng cho camera hoặc cam kết ổ đĩa không bao giờ đầy: tác vụ khác trên VPS và tốc độ ghi giữa hai lần kiểm tra vẫn có thể tiêu thụ dung lượng. Khi tạm ngưng, có khoảng trống ghi hình; xem log `recording_paused_disk` / `recording_resumed_disk`.
 
 ## Cài đặt và cập nhật
 
-`build.sh` đóng gói hai helper mới cùng core hiện có. Installer stage và rename các module trước khi thay entrypoint, giữ helper `root:www 640`, script `root:www 750`. Installer tự restart lần lượt recorder đang chạy và xác minh tiến trình guard trước khi báo cập nhật hoàn tất; không bật camera đang dừng, không thay đổi RTSP URL, thời lượng đoạn, audio hoặc Telegram của camera. Restart có thể tạo một MP4 ngắn tại ranh giới cập nhật.
+`build.sh` đóng gói các helper cùng core hiện có. Installer stage và rename các module trước khi thay entrypoint, giữ helper `root:www 640`, script `root:www 750`. Installer chỉ restart recorder chưa chạy qua guard và xác minh guard trước khi báo cập nhật hoàn tất; bỏ qua recorder đã có guard, không bật camera đang dừng, không thay đổi RTSP URL, thời lượng đoạn, audio hoặc Telegram của camera. Restart có thể tạo một MP4 ngắn tại ranh giới cập nhật.
+
+Installer cài drop-in `/etc/systemd/system/camera-buffer@.service.d/camera-manager-stop.conf` với `KillMode=mixed`, `KillSignal=SIGTERM`, `TimeoutStopSec=45s`, rồi reload systemd. Lệnh Stop/Restart gửi tín hiệu đầu tiên chỉ tới guard; guard chuyển SIGINT tới FFmpeg và chờ đóng MP4 tối đa 20 giây. Logger không bị dừng đồng thời khi FFmpeg còn đang ghi. Nếu quá hạn, vẫn có cơ chế kill để tránh treo dịch vụ. Không thay đổi kiểu MP4, không tạo TS và không sửa lại video đã hỏng; SIGKILL, mất điện hoặc lỗi I/O vẫn có thể làm file dang dở.
 
 Các cảnh báo kết nối RTSP và lỗi codec vẫn phải được theo dõi riêng; retry uploader không sửa được camera đang tắt hay mạng tới Telegram bị gián đoạn.

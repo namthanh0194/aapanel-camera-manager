@@ -5,6 +5,7 @@ import os
 
 from camera_manager_delivery import deliver_video, destination_ready, finish_delivery, send_telegram_video
 from camera_manager_log import inspect_video, remove_logged, write_event
+from camera_manager_probe import inspect_pending_video
 from camera_manager_storage import archive_lock, file_identity, video_closed
 
 CAMERA_ROOT = os.environ.get("CAMERA_ROOT", "/tmp/video/cameras")
@@ -42,7 +43,7 @@ def process_camera(cam_dir):
                 write_event("telegram", "warning", camera_id, "not_configured", "Chưa cấu hình Telegram; giữ nguyên MP4 đã hoàn tất", file=os.path.basename(video))
                 continue
             identity = file_identity(video)
-            duration = inspect_video(video, camera_id, env_cfg.get("SEGMENT_TIME", "180"))
+            duration = inspect_pending_video(video, camera_id, env_cfg.get("SEGMENT_TIME", "180"), inspect_video)
             if duration is None or duration <= 0:
                 continue
             if not video_closed(video) or file_identity(video) != identity:

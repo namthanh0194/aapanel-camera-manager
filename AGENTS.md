@@ -35,6 +35,7 @@ Xây dựng Plugin aaPanel (`Third-party Plug-ins`) để:
     ├── cleanup-and-archive.py             <-- Logic gửi MP4 lên Telegram và xóa tức thì
     ├── camera_manager_log.py             <-- Log JSONL, che bí mật, xoay vòng và API đọc log
     ├── camera_manager_delivery.py        <-- Gửi thẳng MP4; fallback MP4-only, biên nhận và retry
+    ├── camera_manager_probe.py           <-- Đánh dấu MP4 thiếu moov đã xác nhận; giữ gốc, bỏ probe lặp
     └── camera_manager_storage.py         <-- Khóa gửi/dọn, kiểm tra file mở, giám sát dung lượng recorder
 ```
 
@@ -55,6 +56,8 @@ Xây dựng Plugin aaPanel (`Third-party Plug-ins`) để:
 - Khống chế dung lượng file tối đa không vượt quá 48 MB (ngưỡng an toàn của hạn mức 50 MB Telegram Bot API).
 - 48 MB = 48.000.000 byte. Chỉ cứu hộ MP4 vượt ngưỡng bằng stream-copy các phần MP4; không dùng TS hoặc chia lại đường đi bình thường.
 - Không gửi/xóa file đang mở hoặc probe thất bại. Không xóa video chờ gửi theo tuổi; gốc cứu hộ chỉ xóa khi mọi phần có biên nhận Telegram được lưu bền vững.
+- Chỉ giữ marker thiếu moov sau hai lần kiểm tra file đã đóng, không đổi, cách nhau tối thiểu 60 giây; không đánh dấu vĩnh viễn lỗi timeout/quyền. Marker nằm trong `.delivery/<file>/probe.json`, mất hiệu lực khi chữ ký file thay đổi; tuyệt đối không xóa video vì marker này.
+- Stop/Restart dùng drop-in `KillMode=mixed` để guard chuyển tín hiệu đóng MP4 tới FFmpeg; không gửi đồng thời tín hiệu dừng ban đầu tới toàn nhóm recorder/logger.
 - Timer, nút gửi và dọn thủ công phải dùng chung khóa uploader. Giữ retry/backoff và biên nhận trong `buffer/.delivery/`; không lưu bí mật.
 - Bảo vệ dung lượng bằng tạm ngưng/tiếp tục recorder ở ngưỡng 1/1,25 GiB trống, không dùng tự xóa file chưa gửi làm cách chống đầy ổ.
 
