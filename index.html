@@ -204,8 +204,8 @@
             <button class="btn btn-default btn-sm" onclick="cameraManager.reloadList()">🔄 Làm Mới</button>
         </div>
         <div>
-            <span id="camPluginVersion" style="font-size: 12px; color: #888; margin-right: 8px;">v1.0.9</span>
-            <button class="btn btn-default btn-sm" onclick="cameraManager.checkUpdate()">☁️ Kiểm tra Update</button>
+            <span id="camPluginVersion" style="font-size: 12px; color: #888; margin-right: 8px;">v1.1.0</span>
+            <button id="camUpdateButton" class="btn btn-success btn-sm" style="display: none;" onclick="cameraManager.checkUpdate()">☁️ Cập nhật</button>
         </div>
     </div>
 
@@ -246,7 +246,7 @@ var cameraManager = {
     cams: [],
 
     openLogs: function(cameraId) {
-        if (window.cameraManagerLogs && window.cameraManagerLogs.version === '1.0.9') {
+        if (window.cameraManagerLogs && window.cameraManagerLogs.version === '1.1.0') {
             window.cameraManagerLogs.open(this.cams, cameraId);
             return;
         }
@@ -329,6 +329,7 @@ var cameraManager = {
         this.initThemeWatcher();
         this.expandPanelDialog();
         this.reloadList();
+        this.checkUpdate(true);
     },
 
     expandPanelDialog: function() {
@@ -675,12 +676,22 @@ var cameraManager = {
         });
     },
 
-    checkUpdate: function() {
-        var loadT = layer.msg('Đang kiểm tra cập nhật từ GitHub...', { icon: 16, time: 0, shade: 0.1 });
+    checkUpdate: function(silent) {
+        $('#camUpdateButton').hide();
+        var loadT = silent ? null : layer.msg('Đang kiểm tra cập nhật từ GitHub...', { icon: 16, time: 0, shade: 0.1 });
         $.post('/plugin?action=a&name=camera_manager&s=check_update', {}, function(res) {
-            layer.close(loadT);
-            var data = (typeof res === 'string') ? JSON.parse(res) : res;
-            if (data.has_update) {
+            if (!silent) layer.close(loadT);
+            var data;
+            try {
+                data = (typeof res === 'string') ? JSON.parse(res) : res;
+                if (!data || typeof data !== 'object') throw new Error('Invalid update response');
+            } catch (error) {
+                if (!silent) layer.alert('Phản hồi kiểm tra cập nhật không hợp lệ', { title: 'Lỗi cập nhật', icon: 2 });
+                return;
+            }
+            if (data && data.status && data.has_update === true) {
+                $('#camUpdateButton').show();
+                if (silent) return;
                 layer.confirm(
                     '<div style="line-height:22px;"><b>' + (data.msg || 'Đã có phiên bản mới!') + '</b><br><br>' +
                     'Phiên bản hiện tại: <span class="label label-default">v' + data.current_version + '</span><br>' +
@@ -707,8 +718,14 @@ var cameraManager = {
                         });
                     }
                 );
-            } else {
+            } else if (!silent) {
                 layer.alert(data.msg || ('Bạn đang sử dụng phiên bản mới nhất v' + data.current_version), { title: 'Thông tin phiên bản', icon: 1 });
+            }
+        }).fail(function() {
+            $('#camUpdateButton').hide();
+            if (!silent) {
+                layer.close(loadT);
+                layer.alert('Không thể kiểm tra cập nhật. Vui lòng thử mở lại plugin.', { title: 'Lỗi cập nhật', icon: 2 });
             }
         });
     }
