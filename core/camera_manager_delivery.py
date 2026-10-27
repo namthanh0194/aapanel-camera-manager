@@ -5,6 +5,7 @@ import os
 import shutil
 import subprocess
 import time
+from datetime import datetime
 
 from camera_manager_log import inspect_video, remove_logged, write_event
 from camera_manager_storage import MIN_FREE_BYTES, file_identity, save_state, shared_directory, video_closed
@@ -146,6 +147,11 @@ def deliver_video(video_path, camera_id, bot_token, chat_id, duration, sender=se
                 state["parts"] = [{"name": "source", "identity": identity, "bytes": identity[2]}]
             save_state(state_path, state)
         filename = os.path.basename(video_path)
+        try:
+            recording_time = datetime.strptime(os.path.splitext(filename)[0], "%Y%m%d_%H%M%S")
+            video_label = f"Thời gian: {recording_time.strftime('%H:%M:%S %d/%m/%Y')}"
+        except ValueError:
+            video_label = f"Video: {filename}"
         for index, part in enumerate(state["parts"], start=1):
             name = part["name"]
             if name in state["sent"]:
@@ -154,7 +160,7 @@ def deliver_video(video_path, camera_id, bot_token, chat_id, duration, sender=se
             if (os.path.basename(name) != name or not video_closed(path, minimum_age=0)
                     or file_identity(path) != part["identity"] or part["bytes"] > MAX_UPLOAD_BYTES):
                 raise ValueError("Video thay đổi/đang mở hoặc phần cứu hộ không hợp lệ; không gửi/xóa")
-            caption = f"📹 [Camera: {camera_id}]\n⏱ Video: {filename}"
+            caption = f"📹 [Camera: {camera_id}]\n⏱ {video_label}"
             if name != "source":
                 caption += f"\nCứu hộ: phần {index}/{len(state['parts'])}"
             result = sender(bot_token, chat_id, path, caption, camera_id)

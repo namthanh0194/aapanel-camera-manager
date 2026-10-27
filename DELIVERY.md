@@ -1,4 +1,4 @@
-# Ghi MP4 và gửi Telegram an toàn — v1.0.6
+# Ghi MP4 và gửi Telegram an toàn — v1.0.7
 
 ## Đường đi bình thường
 
