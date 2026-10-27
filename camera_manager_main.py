@@ -401,29 +401,41 @@ class camera_manager_main:
 
         latest_version = current_version
         has_update = False
-        update_url = "https://raw.githubusercontent.com/namthanh0194/aapanel-camera-manager/main/info.json"
-        try:
-            import urllib.request
-            req = urllib.request.Request(
-                update_url,
-                headers={
-                    "User-Agent": "aaPanel-Camera-Manager",
-                    "Cache-Control": "no-cache",
-                    "Pragma": "no-cache"
-                }
-            )
-            with urllib.request.urlopen(req, timeout=8) as resp:
-                remote_info = json.loads(resp.read().decode('utf-8'))
-                latest_version = remote_info.get("versions", current_version)
-                if self._parse_version(latest_version) > self._parse_version(current_version):
-                    has_update = True
-        except Exception as error:
+        import urllib.request
+        import base64
+        update_sources = [
+            "https://api.github.com/repos/namthanh0194/aapanel-camera-manager/contents/info.json?ref=main",
+            "https://cdn.jsdelivr.net/gh/namthanh0194/aapanel-camera-manager@main/info.json",
+            "https://raw.githubusercontent.com/namthanh0194/aapanel-camera-manager/main/info.json"
+        ]
+        last_error = None
+        for source_url in update_sources:
+            try:
+                req = urllib.request.Request(
+                    source_url,
+                    headers={"User-Agent": "aaPanel-Camera-Manager", "Cache-Control": "no-cache"}
+                )
+                with urllib.request.urlopen(req, timeout=6) as resp:
+                    payload = resp.read().decode("utf-8")
+                    data = json.loads(payload)
+                    if "content" in data and isinstance(data["content"], str):
+                        data = json.loads(base64.b64decode(data["content"]).decode("utf-8"))
+                    latest_version = data.get("versions", current_version)
+                    if self._parse_version(latest_version) > self._parse_version(current_version):
+                        has_update = True
+                    last_error = None
+                    break
+            except Exception as error:
+                last_error = error
+                continue
+
+        if last_error is not None:
             return json.dumps({
                 "status": False,
                 "current_version": current_version,
                 "has_update": False,
                 "latest_version": current_version,
-                "msg": f"Không thể kết nối máy chủ cập nhật GitHub: {error}"
+                "msg": f"Không thể kết nối máy chủ cập nhật: {last_error}"
             }, ensure_ascii=False)
 
         if has_update:
